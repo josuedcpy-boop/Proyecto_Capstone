@@ -1,0 +1,14 @@
+pydantic>=2
+typer>=0.12
+pyyaml
+python-docx
+python-pptx
+openpyxl
+pypdf
+sentence-transformers
+chromadb
+rich
+python-dotenv
+requests
+anthropic
+pytest

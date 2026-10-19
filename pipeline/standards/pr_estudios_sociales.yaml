@@ -1,0 +1,82 @@
+# Fuente: docs/estandares_y_mejores_practicas.md (sección 1), derivado de
+# "Estándares de Contenido y Expectativas de Grado de Puerto Rico — Programa de
+# Estudios Sociales" (DEPR, 2014).
+#
+# `grade_detail` solo está completo para el estándar CC (Cambio y Continuidad),
+# porque es el único que se transcribió palabra por palabra desde el PDF oficial
+# para los grados 5-8 (ver docs/estandares_y_mejores_practicas.md sección 1.3).
+# Para los otros 7 estándares, el pipeline debe usar `description` (general,
+# válida para todos los grados) como respaldo hasta que alguien transcriba el
+# detalle por grado desde el documento oficial.
+
+subject: history
+standards:
+  - code: CC
+    name: "Cambio y Continuidad"
+    description: >
+      Estudia la vida de las sociedades en el contexto de los cambios y las
+      transformaciones que se producen a través del tiempo.
+    grade_detail:
+      5: >
+        Historia de Puerto Rico y las Américas: sociedades precolombinas,
+        conquista y colonización, instituciones coloniales, rutas comerciales,
+        mestizaje; figuras como Moctezuma, Hernán Cortés, Fray Bartolomé de las
+        Casas; lugares históricos (Machu Picchu, Tenochtitlán, Caguana, Tibes).
+      6: >
+        Mundo antiguo: Edad de Piedra, Edad de los Metales, primeras
+        civilizaciones, Mesopotamia, Egipto, fenicios, hebreos, griegos,
+        romanos, Edad Media y feudalismo; figuras como Sócrates, Platón,
+        Alejandro Magno, Julio César, Confucio, Buda.
+      7: >
+        Puerto Rico desde mediados del siglo XIX: Real Cédula de Gracias de
+        1815, Grito de Lares, abolición de la esclavitud, surgimiento de los
+        partidos políticos, autonomismo, Guerra Hispanoamericana de 1898.
+      8: >
+        Independencia y surgimiento de las nuevas naciones de América; líderes
+        como Toussaint Louverture, Simón Bolívar, José de San Martín, José
+        Martí, George Washington, Thomas Jefferson; líneas de tiempo de
+        hechos históricos significativos desde la independencia.
+  - code: PLA
+    name: "Personas, Lugares y Ambiente"
+    description: >
+      Analiza la interacción entre las personas, los lugares, las regiones y
+      el ambiente, y desarrolla habilidad para aplicar y modificar
+      perspectivas geográficas que afectan la vida del ser humano.
+    grade_detail: {}
+  - code: DP
+    name: "Desarrollo Personal"
+    description: >
+      Afirma los valores de la persona a partir del conocimiento de las
+      características del desarrollo humano, de la inserción social y la
+      participación ciudadana.
+    grade_detail: {}
+  - code: IC
+    name: "Identidad Cultural"
+    description: >
+      Analiza elementos que conforman la identidad cultural puertorriqueña y
+      la de otros pueblos, y su aportación al desarrollo de la sociedad.
+    grade_detail: {}
+  - code: PDC
+    name: "Producción, Distribución y Consumo"
+    description: >
+      Comprende cómo las sociedades organizan la producción, distribución y
+      consumo de bienes y servicios, y analiza sistemas económicos.
+    grade_detail: {}
+  - code: CCD
+    name: "Conciencia Cívica y Democrática"
+    description: >
+      Desarrolla conocimientos, destrezas y actitudes necesarias para la
+      participación ciudadana responsable en una sociedad democrática.
+    grade_detail: {}
+  - code: CG
+    name: "Conciencia Global"
+    description: >
+      Analiza la interdependencia entre los pueblos del mundo y desarrolla
+      una conciencia crítica sobre asuntos globales.
+    grade_detail: {}
+  - code: SCT
+    name: "Sociedad Científica y Tecnológica"
+    description: >
+      Analiza el impacto de la ciencia y la tecnología en el desarrollo de
+      las sociedades y en la vida cotidiana.
+    grade_detail: {}

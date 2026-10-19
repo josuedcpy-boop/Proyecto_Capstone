@@ -1,0 +1,54 @@
+# Fuente: docs/estandares_y_mejores_practicas.md (sección 4), marcos ISTE +
+# CSTA/K-12 CS Framework usados como ancla porque el estándar propio de PR
+# está en revisión para el año escolar 2025-2026 (ver sección 2 del doc).
+#
+# Nivel de detalle: nombres de concepto/estándar (confiables, son los nombres
+# oficiales y estables de ambos marcos), SIN los códigos de indicador
+# individuales (ej. "1B-AP-10") — esos no se transcribieron del documento
+# fuente y habría que añadirlos si el pipeline necesita granularidad mayor.
+
+subject: technology
+csta_levels:
+  - level: "1B"
+    grades: [5]
+    description: >
+      CSTA nivel 1B (edades 8-11, fin de 5° grado). Integrado a la materia,
+      no requiere curso aparte.
+  - level: "2"
+    grades: [6, 7, 8]
+    description: >
+      CSTA nivel 2 (edades 11-14, fin de 8° grado). Integrado a la materia,
+      no requiere curso aparte.
+
+concepts:
+  - code: CS
+    name: "Computing Systems"
+    description: "Hardware y software que componen un sistema de cómputo, y cómo resolver problemas de funcionamiento."
+  - code: NI
+    name: "Networks & the Internet"
+    description: "Cómo se comunican los dispositivos, infraestructura de redes, ciberseguridad."
+  - code: DA
+    name: "Data & Analysis"
+    description: "Cómo se recolectan, almacenan y analizan datos para generar conocimiento (ej. hojas de cálculo, Excel)."
+  - code: AP
+    name: "Algorithms & Programming"
+    description: "Diseño y desarrollo de algoritmos y programas (ej. Scratch, programación por bloques)."
+  - code: IC
+    name: "Impacts of Computing"
+    description: "Impacto social, ético y económico de la tecnología de cómputo; ciudadanía digital."
+
+iste_standards:
+  - code: EL
+    name: "Empowered Learner"
+  - code: DC
+    name: "Digital Citizen"
+  - code: KC
+    name: "Knowledge Constructor"
+  - code: ID
+    name: "Innovative Designer"
+  - code: CT
+    name: "Computational Thinker"
+  - code: CC
+    name: "Creative Communicator"
+  - code: GC
+    name: "Global Collaborator"
