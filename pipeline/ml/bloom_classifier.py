@@ -13,7 +13,9 @@ ver docs/estandares_y_mejores_practicas.md sección 9) con las que reentrenar si
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import numpy as np
 from sklearn.dummy import DummyClassifier
@@ -26,7 +28,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
 
 from pipeline.difficulty.bloom_dok_rules import classify_question
+from pipeline.difficulty.part_type_rules import detect_part_type
 from pipeline.difficulty.splitter import split_questions
+from pipeline.ingest.extractors import extract_text
 from pipeline.ingest.run import load_all_documents
 
 _SUBJECTS = ("history", "technology")
@@ -35,13 +39,16 @@ _MAX_CV_SPLITS = 5
 
 @dataclass
 class LabeledQuestion:
-    """Una pregunta histórica con su etiqueta Bloom (de la heurística) y su examen de origen."""
+    """Una pregunta histórica con su etiqueta Bloom/DOK/tipo-de-parte (de las heurísticas) y
+    su examen/materia/grado de origen — una fila completa del banco de exámenes."""
 
     text: str
     bloom_level: str
     document_id: str
     subject: str
     grade: int | None
+    dok_level: int | None = None
+    part_type: str | None = None
 
 
 # Junta todas las preguntas históricas (de exámenes/reviews ya ingeridos), las etiqueta con
@@ -53,16 +60,27 @@ def build_dataset(subjects: tuple[str, ...] = _SUBJECTS) -> list[LabeledQuestion
         docs = [d for d in load_all_documents() if d.subject == subject and d.doc_type in ("exam", "review")]
         for doc in docs:
             for text in split_questions(doc.text):
-                bloom_level, _dok = classify_question(text)
+                bloom_level, dok_level = classify_question(text)
+                part_type = detect_part_type(text)
                 items.append(
-                    LabeledQuestion(text=text, bloom_level=bloom_level, document_id=doc.id, subject=subject, grade=doc.grade)
+                    LabeledQuestion(
+                        text=text,
+                        bloom_level=bloom_level,
+                        document_id=doc.id,
+                        subject=subject,
+                        grade=doc.grade,
+                        dok_level=dok_level,
+                        part_type=part_type,
+                    )
                 )
     return items
 
 
 # Separa la lista de LabeledQuestion en los 3 arreglos paralelos que espera scikit-learn.
-def _unpack(items: list[LabeledQuestion]) -> tuple[list[str], list[str], list[str]]:
-    return [i.text for i in items], [i.bloom_level for i in items], [i.document_id for i in items]
+# label_attr elige qué campo de LabeledQuestion predecir ("bloom_level" por defecto, o
+# "subject" para entrenar un clasificador de materia con el mismo motor).
+def _unpack(items: list[LabeledQuestion], label_attr: str = "bloom_level") -> tuple[list[str], list[str], list[str]]:
+    return [i.text for i in items], [getattr(i, label_attr) for i in items], [i.document_id for i in items]
 
 
 def _make_pipeline(estimator) -> Pipeline:
@@ -83,8 +101,8 @@ def _safe_n_splits(labels: list[str], groups: list[str]) -> int:
 # cruzada agrupada por examen; a Random Forest y boosting se les hace además búsqueda de
 # hiperparámetros. El ganador se elige por F1-macro (no accuracy, porque las clases Bloom
 # están desbalanceadas) promedio en CV, no en una sola partición.
-def evaluate_models(items: list[LabeledQuestion]) -> dict:
-    texts, labels, groups = _unpack(items)
+def evaluate_models(items: list[LabeledQuestion], label_attr: str = "bloom_level") -> dict:
+    texts, labels, groups = _unpack(items, label_attr)
     n_splits = _safe_n_splits(labels, groups)
     cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
 
@@ -142,8 +160,13 @@ def _build_winner_estimator(name: str, hyperparameters: dict | None):
 # vocabulario del mismo examen entre train y test), entrena el modelo ganador, y evalúa en
 # el test con matriz de confusión + desagregado por materia/grado — más la confirmación
 # explícita de que ningún examen quedó repartido entre ambos lados.
-def train_test_report(items: list[LabeledQuestion], winner_name: str, winner_hyperparameters: dict | None) -> dict:
-    texts, labels, groups = _unpack(items)
+def train_test_report(
+    items: list[LabeledQuestion],
+    winner_name: str,
+    winner_hyperparameters: dict | None,
+    label_attr: str = "bloom_level",
+) -> dict:
+    texts, labels, groups = _unpack(items, label_attr)
     splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=0)
     train_idx, test_idx = next(splitter.split(texts, labels, groups))
 
@@ -194,7 +217,7 @@ def train_test_report(items: list[LabeledQuestion], winner_name: str, winner_hyp
 # Punto de entrada: compara modelos, evalúa al ganador en un test separado por examen, y
 # agrega estadísticas del tamaño de cada subgrupo (para no interpretar un accuracy alto en
 # un subgrupo con muy pocas preguntas como si fuera una conclusión sólida).
-def run_full_report(subjects: tuple[str, ...] = _SUBJECTS) -> dict:
+def run_full_report(subjects: tuple[str, ...] = _SUBJECTS, label_attr: str = "bloom_level") -> dict:
     items = build_dataset(subjects)
     if len(items) < 20:
         return {
@@ -202,18 +225,71 @@ def run_full_report(subjects: tuple[str, ...] = _SUBJECTS) -> dict:
             "detalle": f"Solo {len(items)} preguntas históricas encontradas — muy pocas para entrenar/evaluar con rigor.",
         }
 
-    comparacion = evaluate_models(items)
+    comparacion = evaluate_models(items, label_attr)
     ganador = comparacion["ganador"]
-    detalle_test = train_test_report(items, ganador, comparacion["modelos"][ganador]["mejores_hiperparametros"])
+    detalle_test = train_test_report(items, ganador, comparacion["modelos"][ganador]["mejores_hiperparametros"], label_attr)
 
-    conteos_por_bloom = {label: sum(1 for i in items if i.bloom_level == label) for label in sorted({i.bloom_level for i in items})}
+    etiquetas = [getattr(i, label_attr) for i in items]
+    conteos_por_etiqueta = {label: etiquetas.count(label) for label in sorted(set(etiquetas))}
     conteos_por_grado = {str(g): sum(1 for i in items if i.grade == g) for g in sorted({i.grade for i in items}, key=lambda g: (g is None, g))}
 
     return {
         "estado": "ok",
         "total_preguntas": len(items),
-        "conteos_por_nivel_bloom": conteos_por_bloom,
+        "conteos_por_etiqueta": conteos_por_etiqueta,
         "conteos_por_grado": conteos_por_grado,
         "comparacion_de_modelos": comparacion,
         "evaluacion_en_test": detalle_test,
+    }
+
+
+# Persiste el banco completo (una pregunta por línea JSON) para no tener que reconstruirlo
+# desde los documentos crudos cada vez — mismo patrón que pipeline/ingest/run.py.
+def save_bank(items: list[LabeledQuestion], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for item in items:
+            f.write(json.dumps(asdict(item), ensure_ascii=False) + "\n")
+
+
+def load_bank(path: Path) -> list[LabeledQuestion]:
+    items: list[LabeledQuestion] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                items.append(LabeledQuestion(**json.loads(line)))
+    return items
+
+
+# Entrena el modelo ganador (elegido por CV en evaluate_models) con TODO el banco — a
+# diferencia de train_test_report, esto es para usar el modelo de verdad sobre preguntas
+# nuevas, no para medir qué tan bien le fue (por eso no separa train/test aquí).
+def train_final_model(items: list[LabeledQuestion], label_attr: str = "bloom_level") -> tuple[Pipeline, str]:
+    comparacion = evaluate_models(items, label_attr)
+    ganador = comparacion["ganador"]
+    hiperparametros = comparacion["modelos"][ganador]["mejores_hiperparametros"]
+
+    pipeline = _build_winner_estimator(ganador, hiperparametros)
+    texts, labels, _groups = _unpack(items, label_attr)
+    pipeline.fit(texts, labels)
+    return pipeline, ganador
+
+
+# Entrena con el banco actual (ingerido de data/raw/) y predice la etiqueta (bloom_level o
+# subject) para cada pregunta de un examen NUEVO — cualquier archivo que extract_text soporte
+# (.docx/.pdf/.pptx/.xlsx/.txt), ingerido o no. Reentrena desde cero cada llamada (sin caché de
+# modelo, igual que el resto del módulo); tarda lo mismo que ml-bloom-eval/ml-subject-eval.
+def predict_exam_file(path: Path, label_attr: str = "bloom_level", subjects: tuple[str, ...] = _SUBJECTS) -> dict:
+    items = build_dataset(subjects)
+    pipeline, modelo = train_final_model(items, label_attr)
+
+    texto = extract_text(path)
+    preguntas = split_questions(texto)
+    predicciones = pipeline.predict(preguntas) if preguntas else []
+
+    return {
+        "modelo_usado": modelo,
+        "archivo": str(path),
+        "predicciones": [{"pregunta": q, "prediccion": p} for q, p in zip(preguntas, predicciones)],
     }

@@ -17,6 +17,7 @@ EXAMEN_GENERADO_DIR = PROJECT_ROOT / "Examen_generado"
 LECCION_GENERADA_DIR = PROJECT_ROOT / "Leccion_generada"
 REPORTES_AUDITORIA_DIR = PROJECT_ROOT / "Reportes_auditoria"
 STANDARDS_DIR = Path(__file__).resolve().parent / "standards"
+BANCO_EXAMENES_PATH = PROCESSED_DIR / "banco_examenes.jsonl"
 
 load_dotenv(PROJECT_ROOT / ".env")
 

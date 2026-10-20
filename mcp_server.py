@@ -27,11 +27,12 @@ from pipeline.audit.docx_parser import ExamParseError, parse_generated_exam
 from pipeline.audit.exam_audit import audit_exam
 from pipeline.audit.report import write_audit_report
 from pipeline.cli import _pick_reference_exam, _resolve_subject
-from pipeline.config import get_settings
+from pipeline.config import BANCO_EXAMENES_PATH, get_settings
 from pipeline.difficulty.run import profile_file
 from pipeline.generation.run import generate_exam
 from pipeline.ingest.extractors import extract_text
 from pipeline.ingest.run import ingest_all
+from pipeline.ml.bloom_classifier import build_dataset, predict_exam_file, run_full_report, save_bank
 from pipeline.standards.loader import get_standards_for
 from pipeline.tagging.run import tag_all
 from pipeline.validation.run import validate_exam
@@ -141,6 +142,43 @@ def auditar_examen(ruta_docx: str, perfil_de: str | None = None) -> dict:
             else None
         ),
     }
+
+
+@mcp.tool()
+def construir_banco_examenes() -> dict:
+    """Construye el banco de preguntas etiquetadas (materia + Bloom/DOK + tipo de parte) desde
+    los exámenes/reviews ya ingeridos y lo guarda en data/processed/banco_examenes.jsonl."""
+    items = build_dataset()
+    save_bank(items, BANCO_EXAMENES_PATH)
+    return {"preguntas_guardadas": len(items), "ruta": str(BANCO_EXAMENES_PATH)}
+
+
+@mcp.tool()
+def entrenar_clasificador_dificultad() -> dict:
+    """Entrena/evalúa (CV agrupada por examen) un clasificador supervisado de nivel Bloom a
+    partir del texto de la pregunta. Ver limitaciones en pipeline/ml/bloom_classifier.py."""
+    return run_full_report()
+
+
+@mcp.tool()
+def predecir_examen(ruta_archivo: str, objetivo: str = "dificultad") -> dict:
+    """Entrena el clasificador ganador con el banco actual (reentrena desde cero, ~1 min) y
+    predice materia o dificultad ("materia"|"dificultad") para cada pregunta de un archivo
+    nuevo. Es inferencia real sobre un archivo, no una evaluación train/test."""
+    label_attr = "subject" if objetivo.strip().lower() in ("materia", "subject") else "bloom_level"
+    try:
+        return predict_exam_file(Path(ruta_archivo), label_attr=label_attr)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
+
+
+@mcp.tool()
+def entrenar_clasificador_materia() -> dict:
+    """Entrena/evalúa un clasificador supervisado de MATERIA. LIMITACIÓN: con solo 2 materias de
+    vocabulario muy distinto, el accuracy global sale trivialmente alto (~98%); el F1-macro
+    (métrica real de selección de modelo) es más modesto por el desbalance entre materias
+    (87 preguntas de technology vs 603 de history)."""
+    return run_full_report(label_attr="subject")
 
 
 if __name__ == "__main__":

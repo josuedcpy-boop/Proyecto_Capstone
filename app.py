@@ -227,27 +227,42 @@ with tab_balance:
                 )
 
 with tab_ml:
-    st.subheader("Clasificador supervisado de nivel Bloom (entregable del rúbrico de ML)")
-    st.warning(
-        "Limitación honesta: las etiquetas de entrenamiento vienen de la heurística de reglas "
-        "del propio proyecto (pipeline/difficulty/bloom_dok_rules.py), no de jueces humanos ni "
-        "de datos reales de estudiantes. Este modelo mide si se puede *aprender* ese criterio "
-        "desde el texto — no reemplaza las reglas en el pipeline de generación/auditoría."
-    )
+    st.subheader("Clasificador supervisado (entregable del rúbrico de ML)")
+
+    objetivo_label = st.radio("Objetivo a predecir", ["Dificultad (nivel Bloom)", "Materia"], horizontal=True)
+    label_attr = "bloom_level" if objetivo_label == "Dificultad (nivel Bloom)" else "subject"
+
+    if label_attr == "bloom_level":
+        st.warning(
+            "Limitación honesta: las etiquetas de entrenamiento vienen de la heurística de reglas "
+            "del propio proyecto (pipeline/difficulty/bloom_dok_rules.py), no de jueces humanos ni "
+            "de datos reales de estudiantes. Este modelo mide si se puede *aprender* ese criterio "
+            "desde el texto — no reemplaza las reglas en el pipeline de generación/auditoría."
+        )
+    else:
+        st.warning(
+            "Limitación honesta: solo hay 2 materias locales (history/technology) con vocabulario "
+            "muy distinto, así que el accuracy global sale trivialmente alto (~98%). El F1-macro "
+            "(la métrica real de selección de modelo) es más modesto porque las materias están "
+            "muy desbalanceadas (87 preguntas de technology vs 603 de history) — no es un logro "
+            "de ML, refleja el tamaño/balance actual del banco."
+        )
 
     if st.button("Entrenar y evaluar", type="primary"):
         with st.spinner("Entrenando 5 modelos con validación cruzada agrupada por examen..."):
-            st.session_state["ml_resultado"] = run_ml_report()
+            st.session_state["ml_resultado"] = run_ml_report(label_attr=label_attr)
+            st.session_state["ml_objetivo_label"] = objetivo_label
 
     resultado_ml = st.session_state.get("ml_resultado")
     if resultado_ml:
         if resultado_ml["estado"] != "ok":
             st.info(resultado_ml["detalle"])
         else:
+            etiqueta_columna = "Por nivel Bloom" if st.session_state.get("ml_objetivo_label") == "Dificultad (nivel Bloom)" else "Por materia"
             st.caption(f"Preguntas históricas usadas: {resultado_ml['total_preguntas']}")
             col1, col2 = st.columns(2)
-            col1.write("**Por nivel Bloom**")
-            col1.table(resultado_ml["conteos_por_nivel_bloom"])
+            col1.write(f"**{etiqueta_columna}**")
+            col1.table(resultado_ml["conteos_por_etiqueta"])
             col2.write("**Por grado**")
             col2.table(resultado_ml["conteos_por_grado"])
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import typer
@@ -11,13 +12,16 @@ from pipeline.assemble.run import assemble_exam
 from pipeline.audit.docx_parser import ExamParseError, parse_generated_exam
 from pipeline.audit.exam_audit import audit_exam
 from pipeline.audit.report import write_audit_report
-from pipeline.config import RAW_DIR, get_settings
+from pipeline.config import BANCO_EXAMENES_PATH, RAW_DIR, get_settings
 from pipeline.difficulty.run import print_profile, profile_file
 from pipeline.generation.run import generate_exam
 from pipeline.ingest.extractors import extract_text
 from pipeline.ingest.run import _detect_doc_type, _detect_grade
 from pipeline.ingest.run import ingest_all as _ingest_all
+from pipeline.ml.bloom_classifier import build_dataset as _build_bank_dataset
+from pipeline.ml.bloom_classifier import predict_exam_file as _predict_exam_file
 from pipeline.ml.bloom_classifier import run_full_report as _run_ml_report
+from pipeline.ml.bloom_classifier import save_bank as _save_bank
 from pipeline.standards.loader import get_standards_for
 from pipeline.tagging.run import tag_all as _tag_all
 from pipeline.validation.run import validate_exam
@@ -217,7 +221,7 @@ def ml_bloom_eval():
         return
 
     typer.echo(f"Preguntas históricas usadas: {report['total_preguntas']}")
-    typer.echo(f"Por nivel Bloom: {report['conteos_por_nivel_bloom']}")
+    typer.echo(f"Por nivel Bloom: {report['conteos_por_etiqueta']}")
     typer.echo(f"Por grado: {report['conteos_por_grado']}\n")
 
     comparacion = report["comparacion_de_modelos"]
@@ -237,6 +241,90 @@ def ml_bloom_eval():
     typer.echo(f"  Matriz de confusión: {test['matriz_de_confusion']}")
     typer.echo(f"  Accuracy por materia: {test['accuracy_por_materia']}")
     typer.echo(f"  Accuracy por grado: {test['accuracy_por_grado']}")
+
+
+@app.command(name="banco-build")
+def banco_build():
+    """Construye el banco de preguntas etiquetadas (materia + Bloom/DOK + tipo de parte) a
+    partir de los exámenes/reviews ya ingeridos, y lo guarda en data/processed/banco_examenes.jsonl."""
+    items = _build_bank_dataset()
+    _save_bank(items, BANCO_EXAMENES_PATH)
+
+    por_materia = {s: sum(1 for i in items if i.subject == s) for s in sorted({i.subject for i in items})}
+    por_bloom = {b: sum(1 for i in items if i.bloom_level == b) for b in sorted({i.bloom_level for i in items})}
+    por_parte = {p: sum(1 for i in items if i.part_type == p) for p in sorted({i.part_type for i in items})}
+
+    typer.echo(f"Banco guardado en {BANCO_EXAMENES_PATH} ({len(items)} preguntas)")
+    typer.echo(f"Por materia: {por_materia}")
+    typer.echo(f"Por nivel Bloom: {por_bloom}")
+    typer.echo(f"Por tipo de parte: {por_parte}")
+
+
+@app.command(name="ml-subject-eval")
+def ml_subject_eval():
+    """Igual que ml-bloom-eval pero entrena un clasificador de MATERIA (history/technology) en
+    vez de nivel Bloom. LIMITACIÓN: con solo 2 materias de vocabulario muy distinto, el accuracy
+    global sale trivialmente alto (~98%); el F1-macro (métrica real de selección de modelo) es
+    más modesto porque las materias están muy desbalanceadas (87 preguntas de technology vs 603
+    de history) — no es un logro de ML, refleja el tamaño/balance actual del banco."""
+    report = _run_ml_report(label_attr="subject")
+
+    if report["estado"] != "ok":
+        typer.echo(report["detalle"])
+        return
+
+    typer.echo(f"Preguntas históricas usadas: {report['total_preguntas']}")
+    typer.echo(f"Por materia: {report['conteos_por_etiqueta']}")
+    typer.echo(f"Por grado: {report['conteos_por_grado']}\n")
+
+    comparacion = report["comparacion_de_modelos"]
+    typer.echo(f"Comparación de modelos (F1-macro, validación cruzada agrupada por examen, {comparacion['n_splits_usados']} particiones):")
+    for nombre, datos in sorted(comparacion["modelos"].items(), key=lambda kv: -kv[1]["f1_macro_cv"]):
+        marca = " <- GANADOR" if nombre == comparacion["ganador"] else ""
+        typer.echo(f"  {nombre}: {datos['f1_macro_cv']}{marca}")
+        if datos["mejores_hiperparametros"]:
+            typer.echo(f"      hiperparámetros: {datos['mejores_hiperparametros']}")
+
+    test = report["evaluacion_en_test"]
+    typer.echo(f"\nEvaluación del ganador ({test['modelo_evaluado']}) en examenes nunca vistos en entrenamiento:")
+    typer.echo(f"  Train: {test['preguntas_train']} preguntas de {test['examenes_train']} exámenes")
+    typer.echo(f"  Test:  {test['preguntas_test']} preguntas de {test['examenes_test']} exámenes")
+    typer.echo(f"  Sin fuga de datos confirmada: {test['sin_fuga_confirmada']}")
+    typer.echo(f"  Clases: {test['clases']}")
+    typer.echo(f"  Matriz de confusión: {test['matriz_de_confusion']}")
+    typer.echo(f"  Accuracy por materia: {test['accuracy_por_materia']}")
+    typer.echo(f"  Accuracy por grado: {test['accuracy_por_grado']}")
+
+
+# El texto de un documento puede traer cualquier caracter Unicode (ej. emojis en un reporte
+# de auditoría embebido en un .docx generado); la consola de Windows (cp1252) no puede
+# codificarlos todos y typer.echo revienta en vez de solo mostrarlos mal — se reemplazan los
+# que no entren en el encoding real de la consola para no tumbar el comando por eso.
+def _echo_safe(text: str) -> None:
+    encoding = sys.stdout.encoding or "utf-8"
+    typer.echo(text.encode(encoding, errors="replace").decode(encoding))
+
+
+@app.command(name="predecir-examen")
+def predecir_examen(
+    ruta_archivo: str = typer.Argument(..., help="Archivo del examen a predecir (.docx/.pdf/.pptx/.xlsx/.txt)"),
+    objetivo: str = typer.Option("dificultad", "--objetivo", help="'materia' o 'dificultad'"),
+):
+    """Entrena el clasificador ganador con el banco actual (reentrena desde cero, tarda ~1 min)
+    y predice materia o dificultad para cada pregunta de un examen nuevo. Es inferencia real
+    sobre un archivo — no una evaluación con train/test separado (para eso: ml-bloom-eval /
+    ml-subject-eval)."""
+    label_attr = "subject" if objetivo.strip().lower() in ("materia", "subject") else "bloom_level"
+    resultado = _predict_exam_file(Path(ruta_archivo), label_attr=label_attr)
+
+    typer.echo(f"Modelo usado: {resultado['modelo_usado']} (objetivo: {objetivo})")
+    if not resultado["predicciones"]:
+        typer.echo("No se detectaron preguntas numeradas en el archivo.")
+        return
+
+    for item in resultado["predicciones"]:
+        pregunta_corta = item["pregunta"].replace("\n", " ")[:120]
+        _echo_safe(f"\n[{item['prediccion']}] {pregunta_corta}")
 
 
 @app.command(name="run-all")

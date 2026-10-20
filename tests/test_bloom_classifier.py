@@ -1,5 +1,12 @@
 from pipeline.ml import bloom_classifier as mod
-from pipeline.ml.bloom_classifier import LabeledQuestion, build_dataset, evaluate_models, train_test_report
+from pipeline.ml.bloom_classifier import (
+    LabeledQuestion,
+    build_dataset,
+    evaluate_models,
+    load_bank,
+    save_bank,
+    train_test_report,
+)
 from pipeline.schemas import Document
 
 
@@ -20,6 +27,26 @@ def test_build_dataset_groups_questions_by_document(monkeypatch):
     assert {i.document_id for i in items} == {"examA", "examB"}
     assert all(isinstance(i, LabeledQuestion) for i in items)
     assert all(i.bloom_level for i in items)
+
+
+def test_build_dataset_populates_dok_and_part_type(monkeypatch):
+    docs = [_fake_document("examA", "history", 7, "1. Explica por qué ocurrió el Grito de Lares.")]
+    monkeypatch.setattr(mod, "load_all_documents", lambda: docs)
+
+    items = build_dataset(subjects=("history",))
+
+    assert all(i.dok_level is not None for i in items)
+    assert all(i.part_type for i in items)
+
+
+def test_save_and_load_bank_round_trip(tmp_path):
+    items = _synthetic_items(n_per_group=2, n_groups=2)
+    path = tmp_path / "banco.jsonl"
+
+    save_bank(items, path)
+    loaded = load_bank(path)
+
+    assert loaded == items
 
 
 def _synthetic_items(n_per_group=6, n_groups=6):
@@ -65,3 +92,30 @@ def test_evaluate_models_returns_all_five_and_a_winner():
     }
     assert set(comparison["modelos"].keys()) == expected_models
     assert comparison["ganador"] in expected_models
+
+
+def _synthetic_items_by_subject(n_per_group=6, n_groups=6):
+    """Igual que _synthetic_items pero la etiqueta variable es la materia, no Bloom —
+    para probar label_attr='subject' con StratifiedGroupKFold."""
+    items = []
+    for g in range(n_groups):
+        subject = "history" if g % 2 == 0 else "technology"
+        for i in range(n_per_group):
+            text = f"Pregunta {subject} {g}-{i} sobre un tema cualquiera."
+            items.append(
+                LabeledQuestion(text=text, bloom_level="Recordar", document_id=f"doc{g}", subject=subject, grade=7)
+            )
+    return items
+
+
+def test_run_full_report_with_label_attr_subject():
+    items = _synthetic_items_by_subject()
+    # run_full_report reconstruye el dataset internamente desde los documentos reales, así que
+    # se prueban las piezas generalizadas directamente (lo que realmente cambió).
+    comparison = evaluate_models(items, label_attr="subject")
+    winner = comparison["ganador"]
+    hyperparams = comparison["modelos"][winner]["mejores_hiperparametros"]
+    report = train_test_report(items, winner, hyperparams, label_attr="subject")
+
+    assert report["sin_fuga_confirmada"] is True
+    assert set(report["clases"]) <= {"history", "technology"}
