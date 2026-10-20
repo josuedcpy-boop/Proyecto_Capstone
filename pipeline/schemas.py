@@ -46,6 +46,10 @@ class Question(BaseModel):
     dok_level: int | None = None
     standard_codes: list[str] = Field(default_factory=list)
     source: str = "historical"  # "historical" | "generated"
+    part_type: str | None = None  # "pareo"|"verdadero_falso"|"opcion_multiple"|"respuesta_corta"|"ensayo"|"completar"
+    points: int | None = None
+    options: list[str] | None = None  # solo si part_type == "opcion_multiple"
+    correct_option_index: int | None = None  # índice en `options`
 
 
 class DifficultyProfile(BaseModel):
@@ -71,3 +75,14 @@ class GeneratedExam(BaseModel):
     questions: list[Question]
     target_profile: DifficultyProfile | None = None
     issues: list[ValidationIssue] = Field(default_factory=list)
+
+
+class AuditCriterionResult(BaseModel):
+    criterio: str
+    aprobado: bool
+    detalle: str
+
+
+class AuditReport(BaseModel):
+    criterios: list[AuditCriterionResult] = Field(default_factory=list)
+    aprobado_general: bool = False

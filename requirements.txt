@@ -11,4 +11,6 @@ rich
 python-dotenv
 requests
 anthropic
+mcp
+streamlit
 pytest

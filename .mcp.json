@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "capstone-pipeline": {
+      "command": ".venv/Scripts/python.exe",
+      "args": ["mcp_server.py"]
+    }
+  }
+}

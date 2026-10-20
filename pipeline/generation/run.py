@@ -8,6 +8,12 @@ import re
 
 from pipeline.config import CHROMA_DIR, get_settings
 from pipeline.difficulty.bloom_dok_rules import classify_question
+from pipeline.difficulty.part_type_rules import (
+    VALID_PART_TYPES,
+    detect_part_type,
+    points_for,
+    strip_option_prefix,
+)
 from pipeline.embeddings.chunking import chunk_document
 from pipeline.embeddings.store import EmbeddingStore
 from pipeline.generation.prompts import SYSTEM_PROMPT, build_user_prompt
@@ -38,6 +44,27 @@ def _normalize_bloom_dok(text: str, bloom_level, dok_level) -> tuple[str, int]:
     if isinstance(bloom_level, str) and bloom_level in _VALID_BLOOM_LEVELS and isinstance(dok_level, int) and 1 <= dok_level <= 4:
         return bloom_level, dok_level
     return classify_question(text)
+
+
+def _normalize_part_type_and_options(
+    text: str, part_type, options, correct_option_index
+) -> tuple[str, list[str] | None, int | None]:
+    """Igual filosofía que _normalize_bloom_dok: si el modelo no da un part_type válido,
+    se detecta con heurística. Si dice 'opcion_multiple' pero las opciones no son usables,
+    se degrada a 'respuesta_corta' en vez de fallar."""
+    if not isinstance(part_type, str) or part_type not in VALID_PART_TYPES:
+        part_type = detect_part_type(text)
+
+    if part_type == "opcion_multiple":
+        valid_options = (
+            isinstance(options, list) and len(options) >= 2 and all(isinstance(o, str) for o in options)
+        )
+        valid_index = isinstance(correct_option_index, int) and 0 <= correct_option_index < len(options or [])
+        if valid_options and valid_index:
+            return part_type, [strip_option_prefix(o) for o in options], correct_option_index
+        return "respuesta_corta", None, None
+
+    return part_type, None, None
 
 
 def _build_index(subject: str, grade: int | None, embedding_model: str) -> EmbeddingStore:
@@ -96,6 +123,9 @@ _TEXT_KEY_ALIASES = ("text", "texto", "pregunta", "enunciado")
 _BLOOM_KEY_ALIASES = ("bloom_level", "bloom", "nivel_bloom", "nivel")
 _DOK_KEY_ALIASES = ("dok_level", "dok", "nivel_dok")
 _STANDARDS_KEY_ALIASES = ("standard_codes", "estandares", "estándares")
+_PART_TYPE_KEY_ALIASES = ("part_type", "tipo", "tipo_parte")
+_OPTIONS_KEY_ALIASES = ("options", "opciones")
+_CORRECT_INDEX_KEY_ALIASES = ("correct_option_index", "correct_index", "respuesta_correcta_index")
 
 
 def _first_present(d: dict, keys: tuple[str, ...], default=None):
@@ -130,6 +160,9 @@ def _parse_llm_response(raw: str) -> list[dict]:
                 "bloom_level": _first_present(item, _BLOOM_KEY_ALIASES),
                 "dok_level": _first_present(item, _DOK_KEY_ALIASES),
                 "standard_codes": _first_present(item, _STANDARDS_KEY_ALIASES, []),
+                "part_type": _first_present(item, _PART_TYPE_KEY_ALIASES),
+                "options": _first_present(item, _OPTIONS_KEY_ALIASES),
+                "correct_option_index": _first_present(item, _CORRECT_INDEX_KEY_ALIASES),
             }
         )
     return normalized
@@ -176,6 +209,9 @@ def generate_exam(
     for i, q in enumerate(raw_questions):
         text = q.get("text", "")
         bloom_level, dok_level = _normalize_bloom_dok(text, q.get("bloom_level"), q.get("dok_level"))
+        part_type, options, correct_option_index = _normalize_part_type_and_options(
+            text, q.get("part_type"), q.get("options"), q.get("correct_option_index")
+        )
         questions.append(
             Question(
                 id=f"{subject}_{grade}_gen{i}",
@@ -184,6 +220,10 @@ def generate_exam(
                 dok_level=dok_level,
                 standard_codes=q.get("standard_codes", []),
                 source="generated",
+                part_type=part_type,
+                points=points_for(dok_level),
+                options=options,
+                correct_option_index=correct_option_index,
             )
         )
 

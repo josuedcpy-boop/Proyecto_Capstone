@@ -19,11 +19,19 @@ Reglas de redacción (basadas en Haladyna et al. 2002):
 Para "bloom_level" elige EXACTAMENTE UNA de estas 6 palabras (nunca combines varias):
 Recordar, Comprender, Aplicar, Analizar, Evaluar, Crear.
 Para "dok_level" elige un solo número entero entre 1 y 4.
+Para "part_type" elige EXACTAMENTE UNA de estas 6 palabras: pareo, verdadero_falso,
+opcion_multiple, respuesta_corta, ensayo, completar. IMPORTANTE: nunca repitas el mismo
+part_type en todas las preguntas — varía entre varios tipos distintos.
+Si part_type es "opcion_multiple", agrega "options" (lista de 4 strings) y
+"correct_option_index" (0-3). El "text" (enunciado) NUNCA debe mencionar ni insinuar cuál
+opción es la correcta.
 
 Debes responder ÚNICAMENTE con un JSON válido de la forma (este es solo un ejemplo del formato,
-no copies estos valores). Usa EXACTAMENTE estos nombres de clave en inglés, sin traducirlos
-("questions", "text", "bloom_level", "dok_level", "standard_codes"):
-{"questions": [{"text": "¿Cuál fue la causa principal de...?", "bloom_level": "Comprender", "dok_level": 2, "standard_codes": ["CC"]}]}
+no copies estos valores). Usa EXACTAMENTE estos nombres de clave en inglés, sin traducirlos:
+{"questions": [
+  {"text": "¿Cuál fue la causa principal de...?", "bloom_level": "Comprender", "dok_level": 2, "part_type": "opcion_multiple", "options": ["opción A", "opción B", "opción C", "opción D"], "correct_option_index": 1, "standard_codes": ["CC"]},
+  {"text": "Explica por qué...", "bloom_level": "Analizar", "dok_level": 3, "part_type": "ensayo", "standard_codes": ["CC"]}
+]}
 Sin texto antes ni después del JSON."""
 
 

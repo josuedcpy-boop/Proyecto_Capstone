@@ -67,7 +67,9 @@ cp .env.example .env                # ajusta LLM_PROVIDER si quieres usar Ollama
 python -m pipeline.cli ingest                                   # extrae texto de data/raw/ -> data/processed/documents/
 python -m pipeline.cli tag                                      # cobertura de temas por materia/grado (sin LLM, solo embeddings)
 python -m pipeline.cli profile "data/raw/history/top_level/History Test 7th.docx"   # tabla Bloom x DOK de un examen puntual
-python -m pipeline.cli generate --materia historia --grado 7 --tema "Grito de Lares"   # genera + valida + ensambla un examen nuevo
+python -m pipeline.cli generate --materia historia --grado 7 --tema "Grito de Lares"   # genera + valida + audita + ensambla un examen nuevo
+python -m pipeline.cli audit "Examen_generado/archivo.docx"                            # re-audita un examen ya generado, sin volver a generarlo
+python -m pipeline.cli topic-balance --materia historia --grado 8                      # agrupa preguntas históricas (k-means+PCA) y marca temas sobre/sub-representados
 python -m pipeline.cli run-all --materia historia --grado 7                            # ingest + tag + generate encadenados
 ```
 
@@ -89,7 +91,26 @@ Las etapas de **ingesta, etiquetado de temas y perfil de dificultad no usan ning
 pytest
 ```
 
-Cubre extractores, el separador de preguntas y las reglas Bloom/DOK — no requiere red ni ningún LLM.
+Cubre extractores, el separador de preguntas, las reglas Bloom/DOK, auditoría y balance de temas — no requiere red ni ningún LLM.
+
+### Servidor MCP
+
+`mcp_server.py` expone el pipeline (ingesta, etiquetado, balance de temas, clasificación de dificultad, generación y auditoría de exámenes) como herramientas MCP, para orquestarlo conversacionalmente desde una sesión de Claude en vez de por comandos sueltos. Ya está conectado a este proyecto vía `.mcp.json` — basta con reabrir Claude Code aquí para que las herramientas aparezcan disponibles.
+
+Dos formas de correrlo:
+```bash
+python mcp_server.py                          # local (stdio) — lo que usa .mcp.json
+python mcp_server.py --http --port 8000       # como servidor web, accesible por red en http://<host>:8000/mcp
+```
+El modo `--http` no es una página para abrir en el navegador — es el protocolo MCP sobre HTTP, pensado para que otro cliente MCP (no un navegador) se conecte de forma remota en vez de solo desde esta terminal.
+
+### Interfaz web (Streamlit)
+
+Para usar el pipeline desde el navegador con botones en vez de la terminal:
+```bash
+streamlit run app.py
+```
+Abre `http://localhost:8501` con pestañas para generar un examen, auditar uno ya generado, ver el balance de temas, e ingerir/etiquetar materiales — todo reutilizando las mismas funciones que `pipeline/cli.py` y `mcp_server.py`.
 
 ## Documento de referencia
 

@@ -10,7 +10,9 @@ from docx.shared import Pt
 
 from pipeline.assemble.naming import build_output_path, clean_filename_part
 from pipeline.config import EXAMEN_GENERADO_DIR
-from pipeline.schemas import GeneratedExam
+from pipeline.schemas import AuditReport, GeneratedExam
+
+_OPTION_LETTERS = "abcd"
 
 _SUBJECT_LABELS = {"history": "Historia", "technology": "Tecnología"}
 
@@ -22,7 +24,9 @@ def _add_heading(document: docx.Document, text: str, size: int, bold: bool = Tru
     run.font.size = Pt(size)
 
 
-def assemble_exam(exam: GeneratedExam, tema: str) -> Path:
+def assemble_exam(
+    exam: GeneratedExam, tema: str, audit: AuditReport | None = None, reference_path: str | None = None
+) -> Path:
     exam_path = build_output_path(EXAMEN_GENERADO_DIR, tema, exam.grade)
     tema_clean = clean_filename_part(tema) or "Examen"
 
@@ -31,6 +35,10 @@ def assemble_exam(exam: GeneratedExam, tema: str) -> Path:
 
     _add_heading(document, f"Examen generado — {tema_clean} ({subject_label}, grado {exam.grade})", size=16)
     document.add_paragraph(f"Generado: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    if reference_path:
+        # Guardado para que `pipeline.cli audit` pueda re-auditar este examen después sin
+        # que el usuario tenga que acordarse de cuál fue el material de referencia.
+        document.add_paragraph(f"Material de referencia: {reference_path}")
 
     errors = [i for i in exam.issues if i.severity == "error"]
     warnings = [i for i in exam.issues if i.severity == "warning"]
@@ -49,10 +57,14 @@ def assemble_exam(exam: GeneratedExam, tema: str) -> Path:
         marker = " ⚠" if flagged else ""
         meta_paragraph = document.add_paragraph()
         meta_run = meta_paragraph.add_run(
-            f"{n}. ({question.bloom_level or '?'} / DOK{question.dok_level or '?'}){marker}"
+            f"{n}. ({question.bloom_level or '?'} / DOK{question.dok_level or '?'} / "
+            f"{question.part_type or '?'} / {question.points or 0}pts){marker}"
         )
         meta_run.italic = True
         document.add_paragraph(question.text)
+        if question.options:
+            for letter, option in zip(_OPTION_LETTERS, question.options):
+                document.add_paragraph(f"   {letter}) {option}")
         document.add_paragraph()
 
     if exam.issues:
@@ -63,6 +75,14 @@ def assemble_exam(exam: GeneratedExam, tema: str) -> Path:
                 f"[{issue.severity}] {issue.question_id} ({issue.rule}): {issue.detail}",
                 style="List Bullet",
             )
+
+    if audit is not None:
+        document.add_page_break()
+        estado = "APROBADO" if audit.aprobado_general else "NO APROBADO"
+        _add_heading(document, f"Reporte de auditoría — {estado}", size=13)
+        for criterio in audit.criterios:
+            marca = "[OK]" if criterio.aprobado else "[FALLA]"
+            document.add_paragraph(f"{marca} {criterio.criterio}: {criterio.detalle}", style="List Bullet")
 
     document.save(str(exam_path))
     return exam_path
