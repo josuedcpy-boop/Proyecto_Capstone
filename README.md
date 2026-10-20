@@ -16,6 +16,7 @@ El pipeline completo (ingesta → etiquetado de temas → perfil de dificultad �
 | `tests/` | Pruebas automáticas (`pytest`) de las partes deterministas del pipeline |
 | `Examen_generado/` | Exámenes generados, como `.docx` listos para abrir en Word, nombrados `<Tema> - grado <N>.docx` |
 | `Leccion_generada/` | Misma convención (`.docx` plano, `<Tema> - grado <N>.docx`), reservada para cuando se implemente generación de lecciones completas — hoy el pipeline solo genera exámenes |
+| `Reportes_auditoria/` | Un `.md` por cada vez que se audita un examen ya generado (`pipeline.cli audit`), nombrado `<Tema> - Auditoria - <fecha abreviada>.md` (ej. `20Oct26`) |
 
 ## Estructura de `data/raw/`
 
@@ -68,8 +69,9 @@ python -m pipeline.cli ingest                                   # extrae texto d
 python -m pipeline.cli tag                                      # cobertura de temas por materia/grado (sin LLM, solo embeddings)
 python -m pipeline.cli profile "data/raw/history/top_level/History Test 7th.docx"   # tabla Bloom x DOK de un examen puntual
 python -m pipeline.cli generate --materia historia --grado 7 --tema "Grito de Lares"   # genera + valida + audita + ensambla un examen nuevo
-python -m pipeline.cli audit "Examen_generado/archivo.docx"                            # re-audita un examen ya generado, sin volver a generarlo
+python -m pipeline.cli audit "Examen_generado/archivo.docx"                            # re-audita un examen ya generado; guarda el reporte en Reportes_auditoria/
 python -m pipeline.cli topic-balance --materia historia --grado 8                      # agrupa preguntas históricas (k-means+PCA) y marca temas sobre/sub-representados
+python -m pipeline.cli ml-bloom-eval                                                   # entrena/evalúa (CV + grid search) un clasificador ML de nivel Bloom — ver limitación abajo
 python -m pipeline.cli run-all --materia historia --grado 7                            # ingest + tag + generate encadenados
 ```
 
@@ -110,7 +112,13 @@ Para usar el pipeline desde el navegador con botones en vez de la terminal:
 ```bash
 streamlit run app.py
 ```
-Abre `http://localhost:8501` con pestañas para generar un examen, auditar uno ya generado, ver el balance de temas, e ingerir/etiquetar materiales — todo reutilizando las mismas funciones que `pipeline/cli.py` y `mcp_server.py`.
+Abre `http://localhost:8501` con pestañas para generar un examen, auditar uno ya generado, ver el balance de temas, entrenar/evaluar el clasificador ML de dificultad, e ingerir/etiquetar materiales — todo reutilizando las mismas funciones que `pipeline/cli.py` y `mcp_server.py`.
+
+### Modelo supervisado de dificultad (ML) — y su limitación honesta
+
+`pipeline/ml/bloom_classifier.py` compara 5 modelos (línea base de clase mayoritaria, regresión logística, árbol de decisión, Random Forest, boosting — con búsqueda de hiperparámetros para los dos últimos) para predecir el **nivel Bloom** de una pregunta a partir de su texto (TF-IDF), con validación cruzada **agrupada por examen** (nunca se reparten preguntas del mismo examen entre entrenamiento y prueba, para no inflar el resultado con fuga de datos) y evaluación final en exámenes nunca vistos, desagregada por materia y grado.
+
+**Limitación que hay que tener presente al leer los resultados:** las etiquetas de entrenamiento son la salida de la heurística de reglas del propio proyecto (`pipeline/difficulty/bloom_dok_rules.py`), no juicio humano independiente ni datos reales de estudiantes. El experimento mide si un modelo de texto puede *aprender a reproducir* ese criterio — no se presenta como "mejor que las reglas", y este modelo **no sustituye** `classify_question` en el pipeline de generación/auditoría. Al revisar los resultados con datos reales, esto además destapó una imprecisión real en la heurística: palabras como "create"/"creation" dentro de preguntas puramente factuales (ej. *"How did the creation of the United States affect..."*) se clasifican como nivel "Crear" (el más alto) solo por contener esa raíz, aunque la pregunta no pida crear nada — una mejora pendiente a `bloom_dok_rules.py`, no corregida todavía.
 
 ## Documento de referencia
 

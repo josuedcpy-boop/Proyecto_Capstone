@@ -12,6 +12,8 @@ from pipeline.ingest.run import _detect_doc_type, _detect_grade
 from pipeline.schemas import DifficultyProfile, Document, Question
 
 
+# Separa el documento en preguntas, clasifica cada una (Bloom/DOK), y arma la tabla de
+# especificaciones (cuántas preguntas hay de cada combinación Bloom|DOK).
 def build_profile(document: Document) -> tuple[DifficultyProfile, list[Question]]:
     question_texts = split_questions(document.text)
     questions = []
@@ -66,6 +68,7 @@ def profile_file(path: Path, subject: str | None = None, grade: int | None = Non
     return build_profile(document)
 
 
+# Imprime el perfil de dificultad en la consola, en formato legible.
 def print_profile(profile: DifficultyProfile) -> None:
     print(f"Examen: {profile.source_exam} ({profile.subject}, grado {profile.grade})")
     print(f"Total de preguntas detectadas: {profile.total_questions}")

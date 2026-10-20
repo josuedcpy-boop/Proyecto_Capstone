@@ -9,6 +9,7 @@ from pathlib import Path
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
 
 
+# Quita caracteres no permitidos en nombres de archivo de Windows y colapsa espacios repetidos.
 def clean_filename_part(text: str) -> str:
     text = _INVALID_FILENAME_CHARS.sub("", text).strip()
     return re.sub(r"\s+", " ", text)
@@ -26,6 +27,7 @@ def unique_path(path: Path) -> Path:
         counter += 1
 
 
+# Construye la ruta final "<tema> - grado <N>.docx" dentro de base_dir, sin pisar un archivo existente.
 def build_output_path(base_dir: Path, tema: str, grade: int | None) -> Path:
     base_dir.mkdir(parents=True, exist_ok=True)
     tema_clean = clean_filename_part(tema) or "Sin titulo"

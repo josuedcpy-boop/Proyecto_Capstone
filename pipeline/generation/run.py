@@ -33,6 +33,7 @@ _VALID_BLOOM_LEVELS = {"Recordar", "Comprender", "Aplicar", "Analizar", "Evaluar
 _BACKMATTER_PATTERN = re.compile(r"reference_part|glossary|_toc\b|cover.*toc.*preface", re.IGNORECASE)
 
 
+# True si el documento es material de referencia de libro de texto (glosario, índice, atlas...).
 def _is_backmatter(document) -> bool:
     return document.doc_type == "textbook" and bool(_BACKMATTER_PATTERN.search(document.source_path))
 
@@ -67,6 +68,8 @@ def _normalize_part_type_and_options(
     return part_type, None, None
 
 
+# Construye (o actualiza) el índice de embeddings con todos los documentos de esa
+# materia/grado, excluyendo el material de referencia/backmatter.
 def _build_index(subject: str, grade: int | None, embedding_model: str) -> EmbeddingStore:
     store = EmbeddingStore(CHROMA_DIR, embedding_model)
     documents = [
@@ -128,6 +131,7 @@ _OPTIONS_KEY_ALIASES = ("options", "opciones")
 _CORRECT_INDEX_KEY_ALIASES = ("correct_option_index", "correct_index", "respuesta_correcta_index")
 
 
+# Devuelve el valor de la primera clave de `keys` que exista en el diccionario `d`.
 def _first_present(d: dict, keys: tuple[str, ...], default=None):
     for key in keys:
         if key in d:
@@ -175,6 +179,9 @@ _RETRY_SUFFIX = (
 )
 
 
+# Función principal de esta etapa: recupera contexto relevante (RAG), le pide al
+# LLMProvider configurado que genere preguntas nuevas con ese perfil de dificultad, y
+# normaliza la respuesta a una lista de Question (con reintento si el formato sale mal).
 def generate_exam(
     subject: str,
     grade: int | None,

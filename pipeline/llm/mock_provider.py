@@ -22,5 +22,6 @@ _PLACEHOLDER_QUESTIONS = [
 
 
 class MockProvider(LLMProvider):
+    # Ignora el prompt por completo y siempre devuelve las mismas preguntas de ejemplo.
     def generate(self, prompt: str, system: str | None = None, max_tokens: int = 1536) -> str:
         return json.dumps({"questions": _PLACEHOLDER_QUESTIONS}, ensure_ascii=False)

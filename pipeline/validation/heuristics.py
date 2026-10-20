@@ -15,6 +15,8 @@ _MIN_TEXT_CHARS = 15
 _DUPLICATE_SIMILARITY_THRESHOLD = 0.90
 
 
+# Revisa una pregunta contra las reglas de redacción de Haladyna (sin negaciones, sin
+# "todas/ninguna de las anteriores", texto no vacío).
 def check_format(question: Question) -> list[ValidationIssue]:
     issues = []
     if len(question.text.strip()) < _MIN_TEXT_CHARS:
@@ -40,6 +42,8 @@ def check_format(question: Question) -> list[ValidationIssue]:
     return issues
 
 
+# Compara cada pregunta generada contra el banco histórico (por embeddings) y marca las
+# que son casi idénticas a una pregunta que ya existía.
 def check_duplicates(
     generated: list[Question], historical: list[Question], embedding_model: str
 ) -> list[ValidationIssue]:

@@ -9,10 +9,13 @@ from pipeline.llm.base import LLMProvider
 
 
 class OllamaProvider(LLMProvider):
+    # Guarda el host/modelo a usar en cada llamada.
     def __init__(self, host: str, model: str):
         self._host = host.rstrip("/")
         self._model = model
 
+    # Le manda el prompt a la API local de Ollama (/api/generate) y devuelve el texto de
+    # respuesta; si Ollama no está corriendo, lanza un error claro explicando cómo arrancarlo.
     def generate(self, prompt: str, system: str | None = None, max_tokens: int = 1536) -> str:
         payload = {
             "model": self._model,

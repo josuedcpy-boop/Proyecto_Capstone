@@ -13,6 +13,8 @@ _QUESTION_START = re.compile(r"^\s*(\d{1,2})[.\)]\s+\S")
 _MIN_QUESTION_CHARS = 8
 
 
+# Junta cada línea numerada ("1.", "2)"...) con las líneas siguientes hasta la próxima
+# pregunta numerada; si no encuentra numeración en todo el texto, lo trata como una sola pregunta.
 def split_questions(text: str) -> list[str]:
     lines = text.splitlines()
     blocks: list[list[str]] = []

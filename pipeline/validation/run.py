@@ -12,6 +12,7 @@ from pipeline.schemas import GeneratedExam, Question
 from pipeline.validation.heuristics import check_duplicates, check_format
 
 
+# Junta todas las preguntas históricas (de exámenes/reviews ya ingeridos) de esa materia/grado.
 def _historical_questions(subject: str, grade: int | None) -> list[Question]:
     docs = [
         d
@@ -25,6 +26,8 @@ def _historical_questions(subject: str, grade: int | None) -> list[Question]:
     return questions
 
 
+# Corre todas las heurísticas de validación sobre el examen (formato + duplicados), más
+# el LLM-juez si hay un proveedor real configurado, y guarda los problemas en exam.issues.
 def validate_exam(exam: GeneratedExam) -> GeneratedExam:
     settings = get_settings()
     issues = []

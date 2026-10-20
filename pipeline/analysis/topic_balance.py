@@ -23,10 +23,13 @@ _UNDER_REPRESENTED_RATIO = 0.5
 _OVER_REPRESENTED_RATIO = 1.5
 
 
+# Reutiliza el mismo recolector de preguntas históricas que usa validation/run.py.
 def collect_historical_questions(subject: str, grade: int | None) -> list[Question]:
     return _historical_questions(subject, grade)
 
 
+# Corre KMeans con cada k del rango y se queda con el que da mejor silhouette score
+# (qué tan bien separados quedan los grupos) — así no hay que adivinar k a mano.
 def auto_select_k(embeddings: np.ndarray, k_min: int = _K_MIN, k_max: int | None = None) -> int:
     """Prueba varios k y se queda con el de mayor silhouette score."""
     n_samples = embeddings.shape[0]
@@ -61,6 +64,8 @@ class ClusterReport:
     k: int = 0
 
 
+# Embebe las preguntas, reduce dimensiones con PCA, agrupa con KMeans (k automático), y
+# etiqueta cada grupo con el estándar cuyo centroide quede más cerca.
 def cluster_questions(questions: list[Question], embedding_model: str, standards: list[TaggableStandard]) -> ClusterReport:
     if len(questions) < _K_MIN:
         return ClusterReport(clusters=[], total_questions=len(questions), k=0)

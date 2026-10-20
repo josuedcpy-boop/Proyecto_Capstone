@@ -15,12 +15,14 @@ from pipeline.analysis.topic_balance import balance_report, cluster_questions, c
 from pipeline.assemble.run import assemble_exam
 from pipeline.audit.docx_parser import ExamParseError, parse_generated_exam
 from pipeline.audit.exam_audit import audit_exam
+from pipeline.audit.report import write_audit_report
 from pipeline.cli import _resolve_subject
 from pipeline.config import EXAMEN_GENERADO_DIR, RAW_DIR, get_settings
 from pipeline.difficulty.run import profile_file
 from pipeline.generation.run import generate_exam
 from pipeline.ingest.extractors import extract_text
 from pipeline.ingest.run import _detect_doc_type, _detect_grade, ingest_all
+from pipeline.ml.bloom_classifier import run_full_report as run_ml_report
 from pipeline.standards.loader import get_standards_for
 from pipeline.tagging.run import tag_all
 from pipeline.validation.run import validate_exam
@@ -32,6 +34,8 @@ _GRADOS = [5, 6, 7, 8]
 _MATERIAS = ["historia", "tecnologia"]
 
 
+# Busca en data/raw/ todos los exámenes que calcen con esa materia/grado, para que el
+# usuario elija uno de una lista en vez de escribir la ruta a mano.
 def _list_candidate_exams(subject: str, grado: int) -> list[Path]:
     subject_dir = RAW_DIR / subject
     if not subject_dir.exists():
@@ -48,6 +52,7 @@ def _list_candidate_exams(subject: str, grado: int) -> list[Path]:
     return candidates
 
 
+# Convierte la lista de criterios de auditoría al formato de filas que espera st.table.
 def _audit_table(criterios) -> list[dict]:
     return [
         {"Estado": "OK" if c.aprobado else "FALLA", "Criterio": c.criterio, "Detalle": c.detalle}
@@ -55,8 +60,8 @@ def _audit_table(criterios) -> list[dict]:
     ]
 
 
-tab_generar, tab_auditar, tab_balance, tab_mantenimiento = st.tabs(
-    ["Generar examen", "Auditar examen", "Balance de temas", "Mantenimiento"]
+tab_generar, tab_auditar, tab_balance, tab_ml, tab_mantenimiento = st.tabs(
+    ["Generar examen", "Auditar examen", "Balance de temas", "Modelo de dificultad (ML)", "Mantenimiento"]
 )
 
 with tab_generar:
@@ -142,16 +147,20 @@ with tab_auditar:
 
         if st.button("Auditar", type="primary"):
             try:
-                exam, reference_path_in_doc = parse_generated_exam(Path(archivo))
+                exam, reference_path_in_doc, tema = parse_generated_exam(Path(archivo))
                 reference_path_str = perfil_override or reference_path_in_doc
                 reference_text = extract_text(Path(reference_path_str)) if reference_path_str else ""
 
                 settings = get_settings()
                 report = audit_exam(exam, reference_text=reference_text, embedding_model=settings.embedding_model)
+                report_path = write_audit_report(
+                    exam, report, tema=tema or Path(archivo).stem, reference_path=reference_path_str
+                )
                 st.session_state["audit_resultado"] = {
                     "report": report,
                     "reference_path_str": reference_path_str,
                     "exam": exam,
+                    "report_path": report_path,
                 }
             except ExamParseError as exc:
                 st.session_state["audit_resultado"] = None
@@ -161,6 +170,7 @@ with tab_auditar:
         if resultado_audit:
             report = resultado_audit["report"]
             st.caption(f"Material de referencia: {resultado_audit['reference_path_str'] or '(ninguno)'}")
+            st.success(f"Reporte de auditoría guardado en: {resultado_audit['report_path']}")
             st.markdown(f"**{'APROBADO' if report.aprobado_general else 'NO APROBADO'}**")
             st.table(_audit_table(report.criterios))
 
@@ -215,6 +225,72 @@ with tab_balance:
                     "Estándares sin ningún grupo cercano (posible vacío de contenido): "
                     + ", ".join(resultado_balance["estandares_sin_grupo_cercano"])
                 )
+
+with tab_ml:
+    st.subheader("Clasificador supervisado de nivel Bloom (entregable del rúbrico de ML)")
+    st.warning(
+        "Limitación honesta: las etiquetas de entrenamiento vienen de la heurística de reglas "
+        "del propio proyecto (pipeline/difficulty/bloom_dok_rules.py), no de jueces humanos ni "
+        "de datos reales de estudiantes. Este modelo mide si se puede *aprender* ese criterio "
+        "desde el texto — no reemplaza las reglas en el pipeline de generación/auditoría."
+    )
+
+    if st.button("Entrenar y evaluar", type="primary"):
+        with st.spinner("Entrenando 5 modelos con validación cruzada agrupada por examen..."):
+            st.session_state["ml_resultado"] = run_ml_report()
+
+    resultado_ml = st.session_state.get("ml_resultado")
+    if resultado_ml:
+        if resultado_ml["estado"] != "ok":
+            st.info(resultado_ml["detalle"])
+        else:
+            st.caption(f"Preguntas históricas usadas: {resultado_ml['total_preguntas']}")
+            col1, col2 = st.columns(2)
+            col1.write("**Por nivel Bloom**")
+            col1.table(resultado_ml["conteos_por_nivel_bloom"])
+            col2.write("**Por grado**")
+            col2.table(resultado_ml["conteos_por_grado"])
+
+            comparacion = resultado_ml["comparacion_de_modelos"]
+            st.write(f"**Comparación de modelos** (F1-macro, CV agrupada por examen, {comparacion['n_splits_usados']} particiones)")
+            filas_modelos = [
+                {
+                    "Modelo": nombre + (" (ganador)" if nombre == comparacion["ganador"] else ""),
+                    "F1-macro (CV)": datos["f1_macro_cv"],
+                    "Hiperparámetros": datos["mejores_hiperparametros"] or "—",
+                }
+                for nombre, datos in sorted(comparacion["modelos"].items(), key=lambda kv: -kv[1]["f1_macro_cv"])
+            ]
+            st.table(filas_modelos)
+
+            test = resultado_ml["evaluacion_en_test"]
+            st.write(f"**Evaluación de '{test['modelo_evaluado']}' en exámenes nunca vistos en entrenamiento**")
+            st.write(
+                f"Train: {test['preguntas_train']} preguntas de {test['examenes_train']} exámenes · "
+                f"Test: {test['preguntas_test']} preguntas de {test['examenes_test']} exámenes"
+            )
+            if test["sin_fuga_confirmada"]:
+                st.success("Sin fuga de datos confirmada: ningún examen quedó repartido entre train y test.")
+            else:
+                st.error("¡Fuga de datos detectada! Algún examen quedó repartido entre train y test.")
+
+            st.write("Matriz de confusión (filas = clase real, columnas = clase predicha):")
+            st.table(
+                [
+                    {"Clase real": clase, **dict(zip(test["clases"], fila))}
+                    for clase, fila in zip(test["clases"], test["matriz_de_confusion"])
+                ]
+            )
+
+            col3, col4 = st.columns(2)
+            col3.write("**Accuracy por materia**")
+            col3.table(
+                [{"Materia": k, "Accuracy": v["accuracy"], "Preguntas": v["total"]} for k, v in test["accuracy_por_materia"].items()]
+            )
+            col4.write("**Accuracy por grado**")
+            col4.table(
+                [{"Grado": k, "Accuracy": v["accuracy"], "Preguntas": v["total"]} for k, v in test["accuracy_por_grado"].items()]
+            )
 
 with tab_mantenimiento:
     st.subheader("Ingesta y etiquetado")

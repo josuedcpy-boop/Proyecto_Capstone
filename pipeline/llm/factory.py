@@ -6,6 +6,7 @@ from pipeline.config import Settings
 from pipeline.llm.base import LLMProvider
 
 
+# Según LLM_PROVIDER en la configuración, construye y devuelve el proveedor correspondiente.
 def get_provider(settings: Settings) -> LLMProvider:
     if settings.llm_provider == "mock":
         from pipeline.llm.mock_provider import MockProvider

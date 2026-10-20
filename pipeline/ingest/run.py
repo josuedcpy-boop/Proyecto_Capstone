@@ -23,12 +23,15 @@ _REVIEW_HINTS = ("review", "repaso", "guide", "guía", "guia", "practice", "prac
 _TEXTBOOK_GROUP_HINT = "textbook"
 
 
+# Convierte un texto en un id de archivo seguro: minúsculas, solo letras/números/guiones bajos.
 def _slugify(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"[^a-z0-9]+", "_", text)
     return re.sub(r"_+", "_", text).strip("_")
 
 
+# Adivina el grado (5-8) buscando patrones como "7th"/"7mo"/"grado 7" en el nombre del
+# archivo o de la carpeta que lo contiene.
 def _detect_grade(filename: str, group: str) -> int | None:
     haystacks = [filename, group]
     for haystack in haystacks:
@@ -43,6 +46,8 @@ def _detect_grade(filename: str, group: str) -> int | None:
     return None
 
 
+# Clasifica el archivo como "textbook"/"exam"/"review"/"material" según palabras clave
+# en su nombre o el de su carpeta.
 def _detect_doc_type(filename: str, group: str) -> str:
     lower = filename.lower()
     if _TEXTBOOK_GROUP_HINT in group.lower():
@@ -75,6 +80,9 @@ def _iter_subject_groups():
                 yield subject_dir.name, group_dir.name, group_dir
 
 
+# Recorre todo data/raw/, extrae el texto de cada archivo soportado, y guarda un .json
+# normalizado por archivo en data/processed/documents/. Los archivos que fallan o no
+# tienen texto quedan registrados en report.skipped en vez de detener todo el proceso.
 def ingest_all() -> IngestReport:
     DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
     report = IngestReport()
@@ -118,6 +126,7 @@ def ingest_all() -> IngestReport:
     return report
 
 
+# Carga todos los documentos ya ingeridos (los .json de data/processed/documents/).
 def load_all_documents() -> list[Document]:
     docs = []
     for path in sorted(DOCUMENTS_DIR.glob("*.json")):

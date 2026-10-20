@@ -20,6 +20,8 @@ TAGS_DIR = PROCESSED_DIR / "tags"
 _MIN_SIMILARITY = 0.25
 
 
+# Para cada chunk del documento, encuentra el estándar más parecido (similaridad coseno)
+# y lo devuelve como un StandardTag — descarta los chunks que no se acercan a ningún estándar.
 def tag_document(document: Document, embedding_model: str) -> list[StandardTag]:
     chunks = chunk_document(document)
     if not chunks:
@@ -51,6 +53,7 @@ def tag_document(document: Document, embedding_model: str) -> list[StandardTag]:
     return tags
 
 
+# Agrupa los tags de un documento por estándar: cuántos chunks lo tocaron y su similaridad promedio.
 def document_coverage(tags: list[StandardTag]) -> dict[str, dict]:
     coverage: dict[str, dict] = {}
     for tag in tags:
@@ -65,6 +68,9 @@ def document_coverage(tags: list[StandardTag]) -> dict[str, dict]:
     return coverage
 
 
+# Etiqueta todos los documentos ingeridos, guarda la cobertura de cada uno en
+# data/processed/tags/, y devuelve un resumen de cuántos documentos cubre cada estándar
+# por materia/grado.
 def tag_all() -> dict:
     settings = get_settings()
     TAGS_DIR.mkdir(parents=True, exist_ok=True)

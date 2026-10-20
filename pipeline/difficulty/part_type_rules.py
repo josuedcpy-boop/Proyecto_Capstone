@@ -39,6 +39,8 @@ def strip_option_prefix(option: str) -> str:
     return _OPTION_PREFIX_PATTERN.sub("", option).strip()
 
 
+# Adivina el tipo de pregunta por patrones en el texto (opciones a)/b).., "Verdadero/Falso",
+# un blanco "____", o simplemente lo largo que es el texto para distinguir ensayo de respuesta corta.
 def detect_part_type(text: str) -> str:
     if _MULTIPLE_CHOICE_PATTERN.search(text):
         return "opcion_multiple"

@@ -8,6 +8,8 @@ _TARGET_WORDS = 120
 _OVERLAP_WORDS = 20
 
 
+# Parte el texto del documento en ventanas de ~120 palabras con 20 de traslape entre
+# una y la siguiente, para no cortar una idea justo en el borde de un chunk.
 def chunk_document(document: Document) -> list[Chunk]:
     words = document.text.split()
     if not words:

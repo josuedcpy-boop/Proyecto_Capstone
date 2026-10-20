@@ -17,6 +17,7 @@ _OPTION_LETTERS = "abcd"
 _SUBJECT_LABELS = {"history": "Historia", "technology": "Tecnología"}
 
 
+# Agrega un párrafo en negrita a modo de título dentro del documento.
 def _add_heading(document: docx.Document, text: str, size: int, bold: bool = True) -> None:
     paragraph = document.add_paragraph()
     run = paragraph.add_run(text)
@@ -24,6 +25,8 @@ def _add_heading(document: docx.Document, text: str, size: int, bold: bool = Tru
     run.font.size = Pt(size)
 
 
+# Construye el .docx final: título, cada pregunta con su tipo/puntos (y opciones si es de
+# opción múltiple), y al final el reporte de validación y de auditoría si se dieron.
 def assemble_exam(
     exam: GeneratedExam, tema: str, audit: AuditReport | None = None, reference_path: str | None = None
 ) -> Path:

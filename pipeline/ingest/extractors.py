@@ -9,6 +9,7 @@ class UnsupportedFileError(Exception):
     pass
 
 
+# Extrae el texto de un .docx: párrafos y, aparte, el contenido de cualquier tabla.
 def extract_docx(path: Path) -> str:
     import docx
 
@@ -22,6 +23,7 @@ def extract_docx(path: Path) -> str:
     return "\n".join(parts)
 
 
+# Extrae el texto de un .pptx: recorre cada diapositiva y cada cuadro de texto.
 def extract_pptx(path: Path) -> str:
     from pptx import Presentation
 
@@ -36,6 +38,7 @@ def extract_pptx(path: Path) -> str:
     return "\n".join(parts)
 
 
+# Extrae el texto de un .xlsx: cada fila de cada hoja se junta en una línea "celda | celda".
 def extract_xlsx(path: Path) -> str:
     from openpyxl import load_workbook
 
@@ -49,6 +52,8 @@ def extract_xlsx(path: Path) -> str:
     return "\n".join(parts)
 
 
+# Extrae el texto de un .pdf (solo funciona si el PDF tiene capa de texto real, no un
+# escaneo de imagen puro — en ese caso cada página devuelve "").
 def extract_pdf(path: Path) -> str:
     from pypdf import PdfReader
 
@@ -57,6 +62,7 @@ def extract_pdf(path: Path) -> str:
     return "\n".join(p for p in parts if p.strip())
 
 
+# Lee un .txt tal cual (ej. los capítulos de libro ya convertidos de PDF a texto).
 def extract_txt(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 

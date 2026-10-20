@@ -26,6 +26,8 @@ _DEFAULT_BLOOM = "Recordar"
 _DEFAULT_DOK = 1
 
 
+# Busca en el texto el verbo de mayor nivel cognitivo presente y devuelve (Bloom, DOK);
+# si no encuentra ningún verbo conocido, asume el nivel más bajo (Recordar/DOK1).
 def classify_question(text: str) -> tuple[str, int]:
     lower = text.lower()
     for bloom, dok, keywords in _RULES:

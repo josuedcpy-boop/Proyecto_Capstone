@@ -10,12 +10,14 @@ from pipeline.analysis.topic_balance import balance_report, cluster_questions, c
 from pipeline.assemble.run import assemble_exam
 from pipeline.audit.docx_parser import ExamParseError, parse_generated_exam
 from pipeline.audit.exam_audit import audit_exam
+from pipeline.audit.report import write_audit_report
 from pipeline.config import RAW_DIR, get_settings
 from pipeline.difficulty.run import print_profile, profile_file
 from pipeline.generation.run import generate_exam
 from pipeline.ingest.extractors import extract_text
 from pipeline.ingest.run import _detect_doc_type, _detect_grade
 from pipeline.ingest.run import ingest_all as _ingest_all
+from pipeline.ml.bloom_classifier import run_full_report as _run_ml_report
 from pipeline.standards.loader import get_standards_for
 from pipeline.tagging.run import tag_all as _tag_all
 from pipeline.validation.run import validate_exam
@@ -31,6 +33,8 @@ _SUBJECT_MAP = {
 }
 
 
+# Traduce lo que escribió el usuario ("historia"/"tecnologia"/etc.) al nombre interno
+# de la materia ("history"/"technology"); error claro si no reconoce la palabra.
 def _resolve_subject(materia: str) -> str:
     key = materia.strip().lower()
     if key not in _SUBJECT_MAP:
@@ -66,6 +70,8 @@ def profile(archivo: str):
     print_profile(exam_profile)
 
 
+# Cuando no se pasa --perfil-de, busca en data/raw/ el primer examen que calce con esa
+# materia/grado, para usarlo como perfil de dificultad objetivo.
 def _pick_reference_exam(subject: str, grade: int) -> Path:
     subject_dir = RAW_DIR / subject
     for file_path in sorted(subject_dir.rglob("*")):
@@ -126,7 +132,7 @@ def audit(
     """Audita un examen .docx ya generado (sin volver a generarlo)."""
     path = Path(archivo)
     try:
-        exam, reference_path_in_doc = parse_generated_exam(path)
+        exam, reference_path_in_doc, tema = parse_generated_exam(path)
     except ExamParseError as exc:
         typer.echo(f"ERROR: {exc}")
         raise typer.Exit(code=1)
@@ -158,6 +164,9 @@ def audit(
             "revelarla en el examen) — 'Sin fuga de respuesta' no se pudo confirmar para sus "
             "preguntas de opción múltiple."
         )
+
+    report_path = write_audit_report(exam, report, tema=tema or path.stem, reference_path=reference_path_str)
+    typer.echo(f"\nReporte de auditoría guardado en: {report_path}")
 
 
 @app.command(name="topic-balance")
@@ -194,6 +203,40 @@ def topic_balance(
         typer.echo("\nEstándares sin ningún grupo cercano (posible vacío total de contenido):")
         for nombre in report["estandares_sin_grupo_cercano"]:
             typer.echo(f"  - {nombre}")
+
+
+@app.command(name="ml-bloom-eval")
+def ml_bloom_eval():
+    """Entrena y evalúa (con rigor: CV agrupada por examen + búsqueda de hiperparámetros)
+    un clasificador supervisado de nivel Bloom a partir del texto, comparado contra línea
+    base y árbol/Random Forest/boosting. Ver limitaciones en pipeline/ml/bloom_classifier.py."""
+    report = _run_ml_report()
+
+    if report["estado"] != "ok":
+        typer.echo(report["detalle"])
+        return
+
+    typer.echo(f"Preguntas históricas usadas: {report['total_preguntas']}")
+    typer.echo(f"Por nivel Bloom: {report['conteos_por_nivel_bloom']}")
+    typer.echo(f"Por grado: {report['conteos_por_grado']}\n")
+
+    comparacion = report["comparacion_de_modelos"]
+    typer.echo(f"Comparación de modelos (F1-macro, validación cruzada agrupada por examen, {comparacion['n_splits_usados']} particiones):")
+    for nombre, datos in sorted(comparacion["modelos"].items(), key=lambda kv: -kv[1]["f1_macro_cv"]):
+        marca = " <- GANADOR" if nombre == comparacion["ganador"] else ""
+        typer.echo(f"  {nombre}: {datos['f1_macro_cv']}{marca}")
+        if datos["mejores_hiperparametros"]:
+            typer.echo(f"      hiperparámetros: {datos['mejores_hiperparametros']}")
+
+    test = report["evaluacion_en_test"]
+    typer.echo(f"\nEvaluación del ganador ({test['modelo_evaluado']}) en examenes nunca vistos en entrenamiento:")
+    typer.echo(f"  Train: {test['preguntas_train']} preguntas de {test['examenes_train']} exámenes")
+    typer.echo(f"  Test:  {test['preguntas_test']} preguntas de {test['examenes_test']} exámenes")
+    typer.echo(f"  Sin fuga de datos confirmada: {test['sin_fuga_confirmada']}")
+    typer.echo(f"  Clases: {test['clases']}")
+    typer.echo(f"  Matriz de confusión: {test['matriz_de_confusion']}")
+    typer.echo(f"  Accuracy por materia: {test['accuracy_por_materia']}")
+    typer.echo(f"  Accuracy por grado: {test['accuracy_por_grado']}")
 
 
 @app.command(name="run-all")

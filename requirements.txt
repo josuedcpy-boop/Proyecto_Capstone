@@ -6,6 +6,7 @@ python-pptx
 openpyxl
 pypdf
 sentence-transformers
+scikit-learn
 chromadb
 rich
 python-dotenv

@@ -19,11 +19,14 @@ class TaggableStandard:
     text: str  # descripción a embeber (específica de grado si existe, si no la general)
 
 
+# Lee y parsea uno de los archivos .yaml de esta carpeta.
 def _load_yaml(name: str) -> dict:
     path = _STANDARDS_DIR / name
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+# Devuelve los 8 estándares de Estudios Sociales, usando el texto específico de ese
+# grado cuando existe (hoy solo "Cambio y Continuidad" lo tiene) y el texto general si no.
 def get_history_standards_for_grade(grade: int | None) -> list[TaggableStandard]:
     data = _load_yaml("pr_estudios_sociales.yaml")
     result = []
@@ -47,6 +50,7 @@ def get_technology_standards() -> list[TaggableStandard]:
     return result
 
 
+# Punto de entrada único: según la materia, devuelve los estándares de Historia o Tecnología.
 def get_standards_for(subject: str, grade: int | None) -> list[TaggableStandard]:
     if subject == "history":
         return get_history_standards_for_grade(grade)

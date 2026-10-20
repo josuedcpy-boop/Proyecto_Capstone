@@ -27,7 +27,10 @@ class ExamParseError(Exception):
     pass
 
 
-def parse_generated_exam(path: Path) -> tuple[GeneratedExam, str | None]:
+# Recorre los párrafos del .docx como una máquina de estados simple: detecta el título
+# (tema/materia/grado), la línea de referencia, y cada bloque de pregunta (línea de
+# metadatos + enunciado + opciones si las hay), hasta llegar a las secciones de reportes.
+def parse_generated_exam(path: Path) -> tuple[GeneratedExam, str | None, str | None]:
     document = docx.Document(str(path))
     paragraphs = [p.text for p in document.paragraphs]
 
@@ -41,6 +44,7 @@ def parse_generated_exam(path: Path) -> tuple[GeneratedExam, str | None]:
     current_text_lines: list[str] = []
     current_options: list[str] = []
 
+    # Cierra la pregunta que se venía armando (si hay una) y la agrega a `questions`.
     def _flush_current():
         if current_meta is None:
             return
@@ -112,4 +116,4 @@ def parse_generated_exam(path: Path) -> tuple[GeneratedExam, str | None]:
         )
 
     exam = GeneratedExam(subject=subject or "unknown", grade=grade, questions=questions)
-    return exam, reference_path
+    return exam, reference_path, tema

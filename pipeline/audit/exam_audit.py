@@ -15,6 +15,7 @@ _MIN_COVERAGE_SIMILARITY = 0.5
 _DUPLICATE_SIMILARITY_THRESHOLD = 0.90
 
 
+# Criterio 1: suma los puntos de todas las preguntas y chequea que pase de 50.
 def _check_points(questions: list[Question]) -> AuditCriterionResult:
     total = sum(q.points or 0 for q in questions)
     return AuditCriterionResult(
@@ -24,6 +25,7 @@ def _check_points(questions: list[Question]) -> AuditCriterionResult:
     )
 
 
+# Criterio 2: cuenta cuántos part_type distintos hay y chequea que sean al menos 4.
 def _check_parts(questions: list[Question]) -> AuditCriterionResult:
     distinct = {q.part_type for q in questions if q.part_type}
     return AuditCriterionResult(
@@ -33,10 +35,12 @@ def _check_parts(questions: list[Question]) -> AuditCriterionResult:
     )
 
 
+# Simplifica el reporte de cobertura a solo {código_estándar: cantidad de chunks}.
 def _coverage_vector(coverage: dict[str, dict]) -> dict[str, int]:
     return {code: entry["chunk_count"] for code, entry in coverage.items()}
 
 
+# Similaridad coseno entre dos diccionarios {código: conteo}, tratando las claves ausentes como 0.
 def _cosine_over_dicts(a: dict[str, int], b: dict[str, int]) -> float:
     codes = sorted(set(a) | set(b))
     if not codes:
@@ -49,6 +53,8 @@ def _cosine_over_dicts(a: dict[str, int], b: dict[str, int]) -> float:
     return float(va @ vb / (na * nb))
 
 
+# Criterio 3: etiqueta el material de referencia y las preguntas generadas contra los
+# estándares, y compara ambas distribuciones por similaridad coseno.
 def _check_coverage(
     questions: list[Question], reference_text: str, subject: str, grade: int | None, embedding_model: str
 ) -> AuditCriterionResult:
@@ -133,6 +139,8 @@ def _check_leakage(questions: list[Question]) -> AuditCriterionResult:
     return AuditCriterionResult(criterio="Sin fuga de respuesta", aprobado=aprobado, detalle=" ".join(detalle_partes))
 
 
+# Criterio 5: compara cada pregunta generada contra las demás del mismo examen (no
+# contra el banco histórico) y marca los pares demasiado parecidos entre sí.
 def _check_internal_duplicates(questions: list[Question], embedding_model: str) -> AuditCriterionResult:
     if len(questions) < 2:
         return AuditCriterionResult(
@@ -158,6 +166,7 @@ def _check_internal_duplicates(questions: list[Question], embedding_model: str) 
     return AuditCriterionResult(criterio="Sin preguntas casi duplicadas", aprobado=not duplicate_pairs, detalle=detalle)
 
 
+# Punto de entrada: corre los 5 criterios sobre el examen y devuelve el reporte completo.
 def audit_exam(exam: GeneratedExam, reference_text: str, embedding_model: str) -> AuditReport:
     criterios = [
         _check_points(exam.questions),

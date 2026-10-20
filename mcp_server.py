@@ -25,6 +25,7 @@ from pipeline.analysis.topic_balance import balance_report, cluster_questions, c
 from pipeline.assemble.run import assemble_exam
 from pipeline.audit.docx_parser import ExamParseError, parse_generated_exam
 from pipeline.audit.exam_audit import audit_exam
+from pipeline.audit.report import write_audit_report
 from pipeline.cli import _pick_reference_exam, _resolve_subject
 from pipeline.config import get_settings
 from pipeline.difficulty.run import profile_file
@@ -113,7 +114,7 @@ def auditar_examen(ruta_docx: str, perfil_de: str | None = None) -> dict:
     """Audita un examen .docx ya generado (sin volver a generarlo) contra los 5 criterios
     de docs/criterios_auditoria.md."""
     try:
-        exam, reference_path_in_doc = parse_generated_exam(Path(ruta_docx))
+        exam, reference_path_in_doc, tema = parse_generated_exam(Path(ruta_docx))
     except ExamParseError as exc:
         return {"error": str(exc)}
 
@@ -122,6 +123,7 @@ def auditar_examen(ruta_docx: str, perfil_de: str | None = None) -> dict:
 
     settings = get_settings()
     report = audit_exam(exam, reference_text=reference_text, embedding_model=settings.embedding_model)
+    report_path = write_audit_report(exam, report, tema=tema or Path(ruta_docx).stem, reference_path=reference_path_str)
 
     sin_clave_de_respuesta = any(
         q.part_type == "opcion_multiple" and q.correct_option_index is None for q in exam.questions
@@ -131,6 +133,7 @@ def auditar_examen(ruta_docx: str, perfil_de: str | None = None) -> dict:
         "material_de_referencia": reference_path_str,
         "aprobado_general": report.aprobado_general,
         "criterios": [c.model_dump() for c in report.criterios],
+        "reporte_guardado_en": str(report_path),
         "aviso_fuga_respuesta": (
             "Este .docx no guarda cuál opción es la correcta (por diseño) — 'sin fuga de "
             "respuesta' no se pudo confirmar para sus preguntas de opción múltiple."

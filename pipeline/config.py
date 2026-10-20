@@ -15,6 +15,7 @@ DOCUMENTS_DIR = PROCESSED_DIR / "documents"
 CHROMA_DIR = PROCESSED_DIR / "chroma"
 EXAMEN_GENERADO_DIR = PROJECT_ROOT / "Examen_generado"
 LECCION_GENERADA_DIR = PROJECT_ROOT / "Leccion_generada"
+REPORTES_AUDITORIA_DIR = PROJECT_ROOT / "Reportes_auditoria"
 STANDARDS_DIR = Path(__file__).resolve().parent / "standards"
 
 load_dotenv(PROJECT_ROOT / ".env")
@@ -30,6 +31,8 @@ class Settings:
     embedding_model: str
 
 
+# Lee la configuración actual desde las variables de entorno (ya cargadas desde .env),
+# con un valor por defecto para cada una si no está definida.
 def get_settings() -> Settings:
     return Settings(
         llm_provider=os.getenv("LLM_PROVIDER", "mock").strip().lower(),

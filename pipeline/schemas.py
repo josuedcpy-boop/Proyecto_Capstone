@@ -63,6 +63,8 @@ class DifficultyProfile(BaseModel):
 
 
 class ValidationIssue(BaseModel):
+    """Un problema detectado en una pregunta generada (ej. regla de redacción, duplicado)."""
+
     question_id: str
     rule: str
     detail: str
@@ -70,6 +72,9 @@ class ValidationIssue(BaseModel):
 
 
 class GeneratedExam(BaseModel):
+    """Un examen generado: sus preguntas, el perfil de dificultad que debía cumplir, y
+    los problemas de validación encontrados."""
+
     subject: str
     grade: int | None = None
     questions: list[Question]
@@ -78,11 +83,15 @@ class GeneratedExam(BaseModel):
 
 
 class AuditCriterionResult(BaseModel):
+    """Resultado de un criterio de auditoría (ej. "puntos > 50"): si pasó y por qué."""
+
     criterio: str
     aprobado: bool
     detalle: str
 
 
 class AuditReport(BaseModel):
+    """Los 5 criterios de auditoría evaluados sobre un examen, más el veredicto general."""
+
     criterios: list[AuditCriterionResult] = Field(default_factory=list)
     aprobado_general: bool = False
