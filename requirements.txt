@@ -10,8 +10,6 @@ scikit-learn
 chromadb
 rich
 python-dotenv
-requests
-anthropic
 mcp
 streamlit
 pytest

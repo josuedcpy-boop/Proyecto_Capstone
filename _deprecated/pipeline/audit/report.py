@@ -43,6 +43,8 @@ def write_audit_report(
     for criterio in report.criterios:
         marca = "[OK]" if criterio.aprobado else "[FALLA]"
         lines.append(f"- {marca} **{criterio.criterio}**: {criterio.detalle}")
+        if criterio.explicacion:
+            lines.append(f"  - *Por qué falla:* {criterio.explicacion}")
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
     return report_path

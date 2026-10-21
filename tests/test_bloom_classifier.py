@@ -2,8 +2,10 @@ from pipeline.ml import bloom_classifier as mod
 from pipeline.ml.bloom_classifier import (
     LabeledQuestion,
     build_dataset,
+    build_document_dataset,
     evaluate_models,
     load_bank,
+    run_full_report,
     save_bank,
     train_test_report,
 )
@@ -37,6 +39,24 @@ def test_build_dataset_populates_dok_and_part_type(monkeypatch):
 
     assert all(i.dok_level is not None for i in items)
     assert all(i.part_type for i in items)
+
+
+def test_build_document_dataset_one_row_per_document(monkeypatch):
+    docs = [
+        _fake_document("examA", "history", 7, "1. Explica por qué ocurrió el Grito de Lares.\n2. Define qué es un cabildo."),
+        _fake_document("examB", "technology", 6, "1. Explica qué es un algoritmo."),
+    ]
+    monkeypatch.setattr(mod, "load_all_documents", lambda: docs)
+
+    items = build_document_dataset(subjects=("history", "technology"))
+
+    assert len(items) == 2  # una fila por documento, no por pregunta dividida
+    assert {i.document_id for i in items} == {"examA", "examB"}
+    by_id = {i.document_id: i for i in items}
+    assert by_id["examA"].subject == "history"
+    assert by_id["examA"].grade == 7
+    assert by_id["examA"].text == docs[0].text
+    assert by_id["examA"].bloom_level == ""  # no aplica a nivel de examen completo
 
 
 def test_save_and_load_bank_round_trip(tmp_path):
@@ -110,8 +130,8 @@ def _synthetic_items_by_subject(n_per_group=6, n_groups=6):
 
 def test_run_full_report_with_label_attr_subject():
     items = _synthetic_items_by_subject()
-    # run_full_report reconstruye el dataset internamente desde los documentos reales, así que
-    # se prueban las piezas generalizadas directamente (lo que realmente cambió).
+    # run_full_report reconstruye el dataset internamente desde los documentos reales por
+    # defecto, así que aquí se prueban las piezas generalizadas directamente.
     comparison = evaluate_models(items, label_attr="subject")
     winner = comparison["ganador"]
     hyperparams = comparison["modelos"][winner]["mejores_hiperparametros"]
@@ -119,3 +139,18 @@ def test_run_full_report_with_label_attr_subject():
 
     assert report["sin_fuga_confirmada"] is True
     assert set(report["clases"]) <= {"history", "technology"}
+
+
+def test_run_full_report_accepts_prebuilt_items(monkeypatch):
+    # Si se pasa `items` ya construido (ej. build_document_dataset para materia a nivel de
+    # examen completo), run_full_report no debe reconstruir el dataset desde los documentos.
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("build_dataset no debería llamarse cuando se pasa items=")
+
+    monkeypatch.setattr(mod, "build_dataset", _boom)
+
+    items = _synthetic_items_by_subject()
+    report = run_full_report(label_attr="subject", items=items)
+
+    assert report["estado"] == "ok"
+    assert report["total_preguntas"] == len(items)

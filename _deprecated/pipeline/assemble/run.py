@@ -86,6 +86,8 @@ def assemble_exam(
         for criterio in audit.criterios:
             marca = "[OK]" if criterio.aprobado else "[FALLA]"
             document.add_paragraph(f"{marca} {criterio.criterio}: {criterio.detalle}", style="List Bullet")
+            if criterio.explicacion:
+                document.add_paragraph(f"Por qué falla: {criterio.explicacion}", style="List Bullet 2")
 
     document.save(str(exam_path))
     return exam_path

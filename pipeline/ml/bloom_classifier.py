@@ -1,14 +1,20 @@
-"""Clasificador supervisado de nivel Bloom a partir del texto de la pregunta — una versión
-APRENDIDA (TF-IDF + modelos de scikit-learn) del clasificador de reglas que ya existe en
-pipeline/difficulty/bloom_dok_rules.py::classify_question.
+"""Dos clasificadores supervisados (TF-IDF + modelos de scikit-learn) que comparten el mismo
+motor genérico (evaluate_models/train_test_report/train_final_model, agnóstico al label_attr):
 
-LIMITACIÓN HONESTA (léase antes de usar los resultados): las etiquetas de entrenamiento son
-la salida de esa misma heurística de reglas, no juicio humano independiente ni datos reales
-de estudiantes. Este experimento mide si un modelo de texto puede aprender a *reproducir*
-ese criterio con features de superficie (TF-IDF) — no se presenta como "mejor que las
-reglas", y no reemplaza classify_question en el pipeline de generación/auditoría. Sirve para
-el día que haya etiquetas independientes (jueces humanos, o p-values reales de estudiantes,
-ver docs/estandares_y_mejores_practicas.md sección 9) con las que reentrenar sin tocar reglas.
+1. Nivel Bloom por pregunta — una versión APRENDIDA del clasificador de reglas que ya existe
+   en pipeline/difficulty/bloom_dok_rules.py::classify_question.
+
+   LIMITACIÓN HONESTA (léase antes de usar los resultados): las etiquetas de entrenamiento son
+   la salida de esa misma heurística de reglas, no juicio humano independiente ni datos reales
+   de estudiantes. Este experimento mide si un modelo de texto puede aprender a *reproducir*
+   ese criterio con features de superficie (TF-IDF) — no se presenta como "mejor que las
+   reglas". Sirve para el día que haya etiquetas independientes (jueces humanos, o p-values
+   reales de estudiantes, ver docs/estandares_y_mejores_practicas.md sección 9).
+
+2. Materia (history/technology) a nivel de EXAMEN COMPLETO (build_document_dataset) — esta
+   etiqueta sí es verdad de terreno real (viene de la carpeta de origen en data/raw/), no una
+   pseudo-etiqueta. Es el modelo central del propósito actual del proyecto: identificar de
+   qué materia es un examen nuevo (ver predict_exam_subject).
 """
 
 from __future__ import annotations
@@ -40,13 +46,18 @@ _MAX_CV_SPLITS = 5
 @dataclass
 class LabeledQuestion:
     """Una pregunta histórica con su etiqueta Bloom/DOK/tipo-de-parte (de las heurísticas) y
-    su examen/materia/grado de origen — una fila completa del banco de exámenes."""
+    su examen/materia/grado de origen — una fila completa del banco de exámenes.
+
+    También se reutiliza a nivel de EXAMEN COMPLETO (ver build_document_dataset): ahí
+    `text` es el texto del documento entero, no de una pregunta, y `bloom_level` no aplica
+    (queda en "") — materia no varía dentro de un mismo examen, así que clasificarla por
+    examen completo es más natural que por pregunta suelta."""
 
     text: str
-    bloom_level: str
     document_id: str
     subject: str
     grade: int | None
+    bloom_level: str = ""
     dok_level: int | None = None
     part_type: str | None = None
 
@@ -74,6 +85,19 @@ def build_dataset(subjects: tuple[str, ...] = _SUBJECTS) -> list[LabeledQuestion
                     )
                 )
     return items
+
+
+# Igual que build_dataset, pero una fila POR DOCUMENTO COMPLETO (no por pregunta dividida)
+# — natural para materia, que es la misma para todas las preguntas de un mismo examen (a
+# diferencia de bloom_level, que sí varía pregunta a pregunta dentro de un examen).
+def build_document_dataset(
+    subjects: tuple[str, ...] = _SUBJECTS, doc_types: tuple[str, ...] = ("exam", "review")
+) -> list[LabeledQuestion]:
+    return [
+        LabeledQuestion(text=doc.text, document_id=doc.id, subject=doc.subject, grade=doc.grade)
+        for doc in load_all_documents()
+        if doc.subject in subjects and doc.doc_type in doc_types
+    ]
 
 
 # Separa la lista de LabeledQuestion en los 3 arreglos paralelos que espera scikit-learn.
@@ -217,8 +241,12 @@ def train_test_report(
 # Punto de entrada: compara modelos, evalúa al ganador en un test separado por examen, y
 # agrega estadísticas del tamaño de cada subgrupo (para no interpretar un accuracy alto en
 # un subgrupo con muy pocas preguntas como si fuera una conclusión sólida).
-def run_full_report(subjects: tuple[str, ...] = _SUBJECTS, label_attr: str = "bloom_level") -> dict:
-    items = build_dataset(subjects)
+def run_full_report(
+    subjects: tuple[str, ...] = _SUBJECTS,
+    label_attr: str = "bloom_level",
+    items: list[LabeledQuestion] | None = None,
+) -> dict:
+    items = items if items is not None else build_dataset(subjects)
     if len(items) < 20:
         return {
             "estado": "sin_datos",
@@ -292,4 +320,26 @@ def predict_exam_file(path: Path, label_attr: str = "bloom_level", subjects: tup
         "modelo_usado": modelo,
         "archivo": str(path),
         "predicciones": [{"pregunta": q, "prediccion": p} for q, p in zip(preguntas, predicciones)],
+    }
+
+
+# Igual que predict_exam_file, pero para materia a nivel de EXAMEN COMPLETO: entrena con
+# build_document_dataset (una fila por examen) y predice una sola etiqueta para todo el
+# archivo, no una por pregunta — materia no varía dentro de un mismo examen.
+def predict_exam_subject(path: Path, subjects: tuple[str, ...] = _SUBJECTS) -> dict:
+    items = build_document_dataset(subjects)
+    pipeline, modelo = train_final_model(items, label_attr="subject")
+
+    texto = extract_text(path)
+    prediccion = pipeline.predict([texto])[0]
+
+    confianza = None
+    if hasattr(pipeline, "predict_proba"):
+        confianza = round(float(max(pipeline.predict_proba([texto])[0])), 4)
+
+    return {
+        "modelo_usado": modelo,
+        "archivo": str(path),
+        "materia_predicha": prediccion,
+        "confianza": confianza,
     }

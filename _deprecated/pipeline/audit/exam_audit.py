@@ -15,23 +15,44 @@ _MIN_COVERAGE_SIMILARITY = 0.5
 _DUPLICATE_SIMILARITY_THRESHOLD = 0.90
 
 
+_ALL_PART_TYPES = ("pareo", "verdadero_falso", "opcion_multiple", "respuesta_corta", "ensayo", "completar")
+
+
 # Criterio 1: suma los puntos de todas las preguntas y chequea que pase de 50.
 def _check_points(questions: list[Question]) -> AuditCriterionResult:
     total = sum(q.points or 0 for q in questions)
+    aprobado = total > _MIN_TOTAL_POINTS
+    explicacion = (
+        ""
+        if aprobado
+        else f"Suma {total} punto(s), pero se requiere más de {_MIN_TOTAL_POINTS} — faltan al menos "
+        f"{_MIN_TOTAL_POINTS + 1 - total} punto(s). Añade más preguntas o sube el valor de las existentes."
+    )
     return AuditCriterionResult(
         criterio="Puntuación total > 50",
-        aprobado=total > _MIN_TOTAL_POINTS,
+        aprobado=aprobado,
         detalle=f"Total: {total} puntos ({len(questions)} pregunta(s)).",
+        explicacion=explicacion,
     )
 
 
 # Criterio 2: cuenta cuántos part_type distintos hay y chequea que sean al menos 4.
 def _check_parts(questions: list[Question]) -> AuditCriterionResult:
     distinct = {q.part_type for q in questions if q.part_type}
+    aprobado = len(distinct) >= _MIN_DISTINCT_PARTS
+    faltantes = [p for p in _ALL_PART_TYPES if p not in distinct]
+    explicacion = (
+        ""
+        if aprobado
+        else f"Solo hay {len(distinct)} tipo(s) de pregunta distinto(s); se requieren al menos "
+        f"{_MIN_DISTINCT_PARTS}. Añade {_MIN_DISTINCT_PARTS - len(distinct)} tipo(s) más, por ejemplo: "
+        f"{', '.join(faltantes[:_MIN_DISTINCT_PARTS - len(distinct)])}."
+    )
     return AuditCriterionResult(
         criterio="Mínimo 4 partes distintas",
-        aprobado=len(distinct) >= _MIN_DISTINCT_PARTS,
+        aprobado=aprobado,
         detalle=f"Partes encontradas ({len(distinct)}): {', '.join(sorted(distinct)) or '(ninguna)'}.",
+        explicacion=explicacion,
     )
 
 
@@ -63,6 +84,10 @@ def _check_coverage(
             criterio="Cobertura de temas comparable al material fuente",
             aprobado=False,
             detalle="Sin texto de referencia o sin preguntas generadas — no se puede comparar.",
+            explicacion=(
+                "No se puede evaluar cobertura sin material de referencia — vuelve a auditar pasando "
+                "--perfil-de <ruta al examen/material original> si el .docx no lo guardó."
+            ),
         )
 
     reference_doc = Document(
@@ -87,15 +112,32 @@ def _check_coverage(
     reference_coverage = _coverage_vector(document_coverage(tag_document(reference_doc, embedding_model)))
     generated_coverage = _coverage_vector(document_coverage(tag_document(generated_doc, embedding_model)))
     similarity = _cosine_over_dicts(reference_coverage, generated_coverage)
+    aprobado = similarity >= _MIN_COVERAGE_SIMILARITY
+
+    explicacion = ""
+    if not aprobado:
+        faltantes = sorted(set(reference_coverage) - set(generated_coverage))
+        extras = sorted(set(generated_coverage) - set(reference_coverage))
+        partes = [
+            f"La distribución de temas del examen generado no se parece a la del material fuente "
+            f"(similaridad {similarity:.2f}, se requiere al menos {_MIN_COVERAGE_SIMILARITY})."
+        ]
+        if faltantes:
+            partes.append(f"Estándares del material fuente que no aparecen en lo generado: {', '.join(faltantes)}.")
+        if extras:
+            partes.append(f"Estándares presentes en lo generado pero no en la fuente: {', '.join(extras)}.")
+        partes.append("Revisa si el contexto RAG está anclado al tema correcto, o genera más preguntas de los estándares faltantes.")
+        explicacion = " ".join(partes)
 
     return AuditCriterionResult(
         criterio="Cobertura de temas comparable al material fuente",
-        aprobado=similarity >= _MIN_COVERAGE_SIMILARITY,
+        aprobado=aprobado,
         detalle=(
             f"Similaridad coseno entre distribución de estándares: {similarity:.2f} "
             f"(umbral {_MIN_COVERAGE_SIMILARITY}). Fuente: {reference_coverage or '(sin estándares detectados)'}. "
             f"Generado: {generated_coverage or '(sin estándares detectados)'}."
         ),
+        explicacion=explicacion,
     )
 
 
@@ -136,7 +178,27 @@ def _check_leakage(questions: list[Question]) -> AuditCriterionResult:
     # Si hay preguntas sin revisar, no se puede declarar "aprobado" con certeza — se marca
     # como no aprobado para que quede visible que falta información, no para asumir que falló.
     aprobado = not leaks and not unchecked
-    return AuditCriterionResult(criterio="Sin fuga de respuesta", aprobado=aprobado, detalle=" ".join(detalle_partes))
+    explicacion = ""
+    if not aprobado:
+        partes = []
+        if leaks:
+            partes.append(
+                f"Las preguntas {leaks} repiten en su propio enunciado el texto de la opción correcta "
+                "— un estudiante puede adivinar la respuesta sin saber el contenido. Reescribe el "
+                "enunciado o la opción correcta para que no coincidan textualmente."
+            )
+        if unchecked:
+            partes.append(
+                f"{unchecked} pregunta(s) de opción múltiple no se pudieron revisar porque este .docx no "
+                "guarda cuál opción es la correcta (por diseño, para no revelarla en el examen). Para "
+                "confirmar este criterio con certeza, audita justo después de generar el examen (antes de "
+                "ensamblarlo a .docx), por ejemplo vía `pipeline.cli generate` o la herramienta MCP "
+                "`generar_examen`."
+            )
+        explicacion = " ".join(partes)
+    return AuditCriterionResult(
+        criterio="Sin fuga de respuesta", aprobado=aprobado, detalle=" ".join(detalle_partes), explicacion=explicacion
+    )
 
 
 # Criterio 5: compara cada pregunta generada contra las demás del mismo examen (no
@@ -163,7 +225,19 @@ def _check_internal_duplicates(questions: list[Question], embedding_model: str) 
         if duplicate_pairs
         else "Ninguna pregunta generada se parece demasiado a otra del mismo examen."
     )
-    return AuditCriterionResult(criterio="Sin preguntas casi duplicadas", aprobado=not duplicate_pairs, detalle=detalle)
+    explicacion = (
+        f"Las preguntas de cada par listado son casi idénticas entre sí (similaridad semántica "
+        f">= {_DUPLICATE_SIMILARITY_THRESHOLD}) — elimina o reescribe una de cada par para no repetir "
+        "contenido dentro del mismo examen."
+        if duplicate_pairs
+        else ""
+    )
+    return AuditCriterionResult(
+        criterio="Sin preguntas casi duplicadas",
+        aprobado=not duplicate_pairs,
+        detalle=detalle,
+        explicacion=explicacion,
+    )
 
 
 # Punto de entrada: corre los 5 criterios sobre el examen y devuelve el reporte completo.

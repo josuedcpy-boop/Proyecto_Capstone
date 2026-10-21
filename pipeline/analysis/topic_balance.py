@@ -11,10 +11,11 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 
+from pipeline.difficulty.splitter import split_questions
 from pipeline.embeddings.store import cosine_similarity_matrix, embed_texts
+from pipeline.ingest.run import load_all_documents
 from pipeline.schemas import Question
 from pipeline.standards.loader import TaggableStandard, get_standards_for
-from pipeline.validation.run import _historical_questions
 
 _K_MIN = 2
 _K_MAX = 10
@@ -23,9 +24,18 @@ _UNDER_REPRESENTED_RATIO = 0.5
 _OVER_REPRESENTED_RATIO = 1.5
 
 
-# Reutiliza el mismo recolector de preguntas históricas que usa validation/run.py.
+# Junta todas las preguntas históricas (de exámenes/reviews ya ingeridos) de esa materia/grado.
 def collect_historical_questions(subject: str, grade: int | None) -> list[Question]:
-    return _historical_questions(subject, grade)
+    docs = [
+        d
+        for d in load_all_documents()
+        if d.subject == subject and d.doc_type in ("exam", "review") and (grade is None or d.grade == grade)
+    ]
+    questions = []
+    for doc in docs:
+        for i, text in enumerate(split_questions(doc.text)):
+            questions.append(Question(id=f"{doc.id}__q{i}", text=text, source="historical"))
+    return questions
 
 
 # Corre KMeans con cada k del rango y se queda con el que da mejor silhouette score

@@ -1,187 +1,95 @@
-"""Interfaz web simple (Streamlit) para el pipeline — generar/auditar exámenes y ver el
-balance de temas desde el navegador, sin usar la terminal. Reutiliza exactamente las mismas
-funciones que pipeline/cli.py y mcp_server.py; no duplica lógica.
+"""Interfaz web simple (Streamlit) para el pipeline — identificar materia/estándares de un
+examen nuevo, ver el balance de temas y entrenar los clasificadores, desde el navegador sin
+usar la terminal. Reutiliza exactamente las mismas funciones que pipeline/cli.py y
+mcp_server.py; no duplica lógica.
 
 Correr: streamlit run app.py
 """
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 import streamlit as st
 
 from pipeline.analysis.topic_balance import balance_report, cluster_questions, collect_historical_questions
-from pipeline.assemble.run import assemble_exam
-from pipeline.audit.docx_parser import ExamParseError, parse_generated_exam
-from pipeline.audit.exam_audit import audit_exam
-from pipeline.audit.report import write_audit_report
 from pipeline.cli import _resolve_subject
-from pipeline.config import EXAMEN_GENERADO_DIR, RAW_DIR, get_settings
-from pipeline.difficulty.run import profile_file
-from pipeline.generation.run import generate_exam
-from pipeline.ingest.extractors import extract_text
-from pipeline.ingest.run import _detect_doc_type, _detect_grade, ingest_all
+from pipeline.config import get_settings
+from pipeline.ingest.run import ingest_all
+from pipeline.ml.bloom_classifier import build_document_dataset
+from pipeline.ml.bloom_classifier import predict_exam_subject
 from pipeline.ml.bloom_classifier import run_full_report as run_ml_report
+from pipeline.ml.standards_classifier import evaluate_standards_model, predict_exam_standards
 from pipeline.standards.loader import get_standards_for
 from pipeline.tagging.run import tag_all
-from pipeline.validation.run import validate_exam
 
-st.set_page_config(page_title="Generador de Exámenes", page_icon="📝", layout="wide")
-st.title("Generador y Auditor de Exámenes — Capstone MAI540")
+st.set_page_config(page_title="Identificador de Exámenes", page_icon="🔎", layout="wide")
+st.title("Identificador de Materia y Estándares — Capstone MAI540")
 
 _GRADOS = [5, 6, 7, 8]
 _MATERIAS = ["historia", "tecnologia"]
 
 
-# Busca en data/raw/ todos los exámenes que calcen con esa materia/grado, para que el
-# usuario elija uno de una lista en vez de escribir la ruta a mano.
-def _list_candidate_exams(subject: str, grado: int) -> list[Path]:
-    subject_dir = RAW_DIR / subject
-    if not subject_dir.exists():
-        return []
-    candidates = []
-    for file_path in sorted(subject_dir.rglob("*")):
-        if not file_path.is_file() or file_path.suffix.lower() not in (".docx", ".pdf", ".txt"):
-            continue
-        group = file_path.parent.name
-        if _detect_doc_type(file_path.name, group) != "exam":
-            continue
-        if _detect_grade(file_path.name, group) == grado:
-            candidates.append(file_path)
-    return candidates
+# Guarda el archivo subido a un temporal con la misma extensión, para que extract_text
+# (que trabaja por sufijo de Path) lo pueda leer igual que un archivo del disco.
+def _save_uploaded_file(uploaded) -> Path:
+    suffix = Path(uploaded.name).suffix
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(uploaded.getvalue())
+        return Path(tmp.name)
 
 
-# Convierte la lista de criterios de auditoría al formato de filas que espera st.table.
-def _audit_table(criterios) -> list[dict]:
-    return [
-        {"Estado": "OK" if c.aprobado else "FALLA", "Criterio": c.criterio, "Detalle": c.detalle}
-        for c in criterios
-    ]
-
-
-tab_generar, tab_auditar, tab_balance, tab_ml, tab_mantenimiento = st.tabs(
-    ["Generar examen", "Auditar examen", "Balance de temas", "Modelo de dificultad (ML)", "Mantenimiento"]
+tab_identificar, tab_balance, tab_ml, tab_mantenimiento = st.tabs(
+    ["Identificar examen", "Balance de temas", "Modelos ML", "Mantenimiento"]
 )
 
-with tab_generar:
-    st.subheader("Generar un examen nuevo")
-    col1, col2 = st.columns(2)
-    materia = col1.selectbox("Materia", _MATERIAS, key="gen_materia")
-    grado = col2.selectbox("Grado", _GRADOS, key="gen_grado")
-    tema = st.text_input("Tema (opcional — si no lo pones, se usa el nombre del examen de referencia)", key="gen_tema")
+with tab_identificar:
+    st.subheader("Identificar materia y estándares de un examen nuevo")
+    st.caption(
+        "Sube un examen (propio o de cualquier docente) y el sistema entrena los "
+        "clasificadores con el banco histórico actual (~1 min) para identificar de qué "
+        "materia es y qué estándares curriculares cumple."
+    )
+    archivo_subido = st.file_uploader("Examen (.docx/.pdf/.pptx/.xlsx/.txt)", key="id_archivo")
 
-    subject_preview = _resolve_subject(materia)
-    candidatos = _list_candidate_exams(subject_preview, grado)
-    opciones = ["(automático — el primero que se encuentre)"] + [str(p) for p in candidatos]
-    perfil_elegido = st.selectbox(f"Examen de referencia ({len(candidatos)} encontrados)", opciones, key="gen_perfil")
-
-    if st.button("Generar examen", type="primary"):
-        with st.spinner("Generando (puede tardar si el proveedor de LLM es local)..."):
+    if archivo_subido and st.button("Identificar", type="primary"):
+        with st.spinner("Entrenando clasificadores y prediciendo..."):
+            ruta_temporal = _save_uploaded_file(archivo_subido)
             try:
-                subject = _resolve_subject(materia)
-                reference_path = (
-                    Path(perfil_elegido) if perfil_elegido != opciones[0] else candidatos[0] if candidatos else None
+                materia_resultado = predict_exam_subject(ruta_temporal)
+                estandares_resultado = predict_exam_standards(
+                    ruta_temporal, subject=materia_resultado["materia_predicha"]
                 )
-                if reference_path is None:
-                    raise FileNotFoundError(f"No se encontró un examen de referencia para {subject}/{grado}.")
-
-                target_profile, _hist = profile_file(reference_path, subject=subject, grade=grado)
-                tema_resuelto = tema or reference_path.stem
-                reference_text = extract_text(reference_path)
-
-                exam = generate_exam(subject, grado, target_profile, tema=tema_resuelto, reference_text=reference_text)
-                exam = validate_exam(exam)
-
-                settings = get_settings()
-                audit = audit_exam(exam, reference_text=reference_text, embedding_model=settings.embedding_model)
-                out_path = assemble_exam(exam, tema=tema_resuelto, audit=audit, reference_path=str(reference_path))
-
-                st.session_state["gen_resultado"] = {
-                    "out_path": out_path,
-                    "reference_path": reference_path,
-                    "target_profile": target_profile,
-                    "audit": audit,
-                    "exam": exam,
+                st.session_state["id_resultado"] = {
+                    "materia": materia_resultado,
+                    "estandares": estandares_resultado,
                 }
             except Exception as exc:  # noqa: BLE001
-                st.session_state["gen_resultado"] = None
-                st.error(f"No se pudo generar el examen: {exc}")
+                st.session_state["id_resultado"] = None
+                st.error(f"No se pudo identificar el examen: {exc}")
+            finally:
+                ruta_temporal.unlink(missing_ok=True)
 
-    resultado = st.session_state.get("gen_resultado")
-    if resultado:
-        st.success(f"Examen generado: {resultado['out_path']}")
-        st.caption(f"Material de referencia usado: {resultado['reference_path']}")
-
-        audit = resultado["audit"]
-        st.markdown(f"**Auditoría: {'APROBADO' if audit.aprobado_general else 'NO APROBADO'}**")
-        st.table(_audit_table(audit.criterios))
-
-        with st.expander(f"Ver las {len(resultado['exam'].questions)} pregunta(s) generada(s)"):
-            for n, q in enumerate(resultado["exam"].questions, start=1):
-                st.markdown(f"**{n}.** ({q.bloom_level} / DOK{q.dok_level} / {q.part_type} / {q.points}pts)")
-                st.write(q.text)
-                if q.options:
-                    for letter, option in zip("abcd", q.options):
-                        st.write(f"   {letter}) {option}")
-
-        docx_bytes = Path(resultado["out_path"]).read_bytes()
-        st.download_button(
-            "Descargar .docx",
-            data=docx_bytes,
-            file_name=Path(resultado["out_path"]).name,
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    resultado_id = st.session_state.get("id_resultado")
+    if resultado_id:
+        materia_resultado = resultado_id["materia"]
+        st.success(
+            f"Materia predicha: **{materia_resultado['materia_predicha']}** "
+            f"(modelo: {materia_resultado['modelo_usado']}, confianza: {materia_resultado['confianza']})"
         )
 
-with tab_auditar:
-    st.subheader("Auditar un examen ya generado")
-    existentes = sorted(EXAMEN_GENERADO_DIR.glob("*.docx")) if EXAMEN_GENERADO_DIR.exists() else []
-    if not existentes:
-        st.info("No hay archivos en Examen_generado/ todavía — genera uno primero en la otra pestaña.")
-    else:
-        archivo = st.selectbox("Archivo", [str(p) for p in existentes], key="audit_archivo")
-        perfil_override = st.text_input(
-            "Ruta al material de referencia (opcional — por defecto usa la guardada en el .docx)",
-            key="audit_perfil",
-        )
-
-        if st.button("Auditar", type="primary"):
-            try:
-                exam, reference_path_in_doc, tema = parse_generated_exam(Path(archivo))
-                reference_path_str = perfil_override or reference_path_in_doc
-                reference_text = extract_text(Path(reference_path_str)) if reference_path_str else ""
-
-                settings = get_settings()
-                report = audit_exam(exam, reference_text=reference_text, embedding_model=settings.embedding_model)
-                report_path = write_audit_report(
-                    exam, report, tema=tema or Path(archivo).stem, reference_path=reference_path_str
-                )
-                st.session_state["audit_resultado"] = {
-                    "report": report,
-                    "reference_path_str": reference_path_str,
-                    "exam": exam,
-                    "report_path": report_path,
-                }
-            except ExamParseError as exc:
-                st.session_state["audit_resultado"] = None
-                st.error(str(exc))
-
-        resultado_audit = st.session_state.get("audit_resultado")
-        if resultado_audit:
-            report = resultado_audit["report"]
-            st.caption(f"Material de referencia: {resultado_audit['reference_path_str'] or '(ninguno)'}")
-            st.success(f"Reporte de auditoría guardado en: {resultado_audit['report_path']}")
-            st.markdown(f"**{'APROBADO' if report.aprobado_general else 'NO APROBADO'}**")
-            st.table(_audit_table(report.criterios))
-
-            if any(
-                q.part_type == "opcion_multiple" and q.correct_option_index is None
-                for q in resultado_audit["exam"].questions
-            ):
-                st.warning(
-                    "Este .docx no guarda cuál opción es la correcta (por diseño) — 'sin fuga "
-                    "de respuesta' no se pudo confirmar para sus preguntas de opción múltiple."
-                )
+        estandares_resultado = resultado_id["estandares"]
+        if estandares_resultado["estandares_predichos"]:
+            st.write("**Estándares predichos:**")
+            st.table(
+                [
+                    {"Estándar": item["estandar"], "Probabilidad": item["probabilidad"]}
+                    for item in estandares_resultado["estandares_predichos"]
+                ]
+            )
+        else:
+            st.info(estandares_resultado["aviso"])
 
 with tab_balance:
     st.subheader("Balance de temas (k-means + PCA sobre el banco histórico)")
@@ -227,39 +135,75 @@ with tab_balance:
                 )
 
 with tab_ml:
-    st.subheader("Clasificador supervisado (entregable del rúbrico de ML)")
+    st.subheader("Clasificadores supervisados (entregable del rúbrico de ML)")
 
-    objetivo_label = st.radio("Objetivo a predecir", ["Dificultad (nivel Bloom)", "Materia"], horizontal=True)
-    label_attr = "bloom_level" if objetivo_label == "Dificultad (nivel Bloom)" else "subject"
+    objetivo_label = st.radio(
+        "Objetivo a entrenar/evaluar", ["Dificultad (nivel Bloom)", "Materia", "Estándares"], horizontal=True
+    )
 
-    if label_attr == "bloom_level":
+    if objetivo_label == "Dificultad (nivel Bloom)":
         st.warning(
             "Limitación honesta: las etiquetas de entrenamiento vienen de la heurística de reglas "
             "del propio proyecto (pipeline/difficulty/bloom_dok_rules.py), no de jueces humanos ni "
             "de datos reales de estudiantes. Este modelo mide si se puede *aprender* ese criterio "
-            "desde el texto — no reemplaza las reglas en el pipeline de generación/auditoría."
+            "desde el texto."
+        )
+    elif objetivo_label == "Materia":
+        st.warning(
+            "Limitación honesta: solo hay 2 materias locales (history/technology) con vocabulario "
+            "muy distinto y pocos documentos tipo examen/review (96 historia / 34 tecnología), así "
+            "que el F1-macro (la métrica real de selección de modelo) es modesto por el desbalance "
+            "y el tamaño chico del banco — a diferencia de Bloom, esta etiqueta sí es verdad de "
+            "terreno real (viene de la carpeta de origen), no una pseudo-etiqueta."
         )
     else:
         st.warning(
-            "Limitación honesta: solo hay 2 materias locales (history/technology) con vocabulario "
-            "muy distinto, así que el accuracy global sale trivialmente alto (~98%). El F1-macro "
-            "(la métrica real de selección de modelo) es más modesto porque las materias están "
-            "muy desbalanceadas (87 preguntas de technology vs 603 de history) — no es un logro "
-            "de ML, refleja el tamaño/balance actual del banco."
+            "Limitación honesta: las etiquetas de estándar son PSEUDO-ETIQUETAS producidas por el "
+            "etiquetado por embeddings (pipeline/tagging/run.py), no juicio humano — este modelo "
+            "aprende a reproducir esa heurística desde texto crudo. Con ~20 códigos repartidos en "
+            "~130 documentos, muchos códigos tendrán muy poco soporte."
         )
+        materia_estandares = st.selectbox("Materia", _MATERIAS, key="ml_estandares_materia")
 
     if st.button("Entrenar y evaluar", type="primary"):
-        with st.spinner("Entrenando 5 modelos con validación cruzada agrupada por examen..."):
-            st.session_state["ml_resultado"] = run_ml_report(label_attr=label_attr)
+        with st.spinner("Entrenando..."):
+            if objetivo_label == "Dificultad (nivel Bloom)":
+                st.session_state["ml_resultado"] = run_ml_report(label_attr="bloom_level")
+            elif objetivo_label == "Materia":
+                st.session_state["ml_resultado"] = run_ml_report(
+                    label_attr="subject", items=build_document_dataset()
+                )
+            else:
+                subject = _resolve_subject(materia_estandares)
+                st.session_state["ml_resultado"] = evaluate_standards_model(subject)
             st.session_state["ml_objetivo_label"] = objetivo_label
 
     resultado_ml = st.session_state.get("ml_resultado")
     if resultado_ml:
+        objetivo_actual = st.session_state.get("ml_objetivo_label")
         if resultado_ml["estado"] != "ok":
             st.info(resultado_ml["detalle"])
+        elif objetivo_actual == "Estándares":
+            st.caption(
+                f"Documentos tipo examen/review: {resultado_ml['total_documentos']} "
+                f"(train {resultado_ml['documentos_train']} / test {resultado_ml['documentos_test']})"
+            )
+            st.write(f"**F1 micro:** {resultado_ml['f1_micro']}  **F1 macro:** {resultado_ml['f1_macro']}")
+            st.table(
+                [
+                    {
+                        "Estándar": codigo,
+                        "Soporte (docs)": resultado_ml["soporte_por_codigo"][codigo],
+                        "Precision": round(resultado_ml["reporte_por_codigo"][codigo]["precision"], 2),
+                        "Recall": round(resultado_ml["reporte_por_codigo"][codigo]["recall"], 2),
+                        "F1": round(resultado_ml["reporte_por_codigo"][codigo]["f1-score"], 2),
+                    }
+                    for codigo in resultado_ml["codigos"]
+                ]
+            )
         else:
-            etiqueta_columna = "Por nivel Bloom" if st.session_state.get("ml_objetivo_label") == "Dificultad (nivel Bloom)" else "Por materia"
-            st.caption(f"Preguntas históricas usadas: {resultado_ml['total_preguntas']}")
+            etiqueta_columna = "Por nivel Bloom" if objetivo_actual == "Dificultad (nivel Bloom)" else "Por materia"
+            st.caption(f"Documentos/preguntas históricas usadas: {resultado_ml['total_preguntas']}")
             col1, col2 = st.columns(2)
             col1.write(f"**{etiqueta_columna}**")
             col1.table(resultado_ml["conteos_por_etiqueta"])
@@ -267,7 +211,7 @@ with tab_ml:
             col2.table(resultado_ml["conteos_por_grado"])
 
             comparacion = resultado_ml["comparacion_de_modelos"]
-            st.write(f"**Comparación de modelos** (F1-macro, CV agrupada por examen, {comparacion['n_splits_usados']} particiones)")
+            st.write(f"**Comparación de modelos** (F1-macro, CV, {comparacion['n_splits_usados']} particiones)")
             filas_modelos = [
                 {
                     "Modelo": nombre + (" (ganador)" if nombre == comparacion["ganador"] else ""),
@@ -280,10 +224,7 @@ with tab_ml:
 
             test = resultado_ml["evaluacion_en_test"]
             st.write(f"**Evaluación de '{test['modelo_evaluado']}' en exámenes nunca vistos en entrenamiento**")
-            st.write(
-                f"Train: {test['preguntas_train']} preguntas de {test['examenes_train']} exámenes · "
-                f"Test: {test['preguntas_test']} preguntas de {test['examenes_test']} exámenes"
-            )
+            st.write(f"Train: {test['examenes_train']} exámenes · Test: {test['examenes_test']} exámenes")
             if test["sin_fuga_confirmada"]:
                 st.success("Sin fuga de datos confirmada: ningún examen quedó repartido entre train y test.")
             else:

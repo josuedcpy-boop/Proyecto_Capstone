@@ -38,18 +38,16 @@ class StandardTag(BaseModel):
 
 
 class Question(BaseModel):
-    """Una pregunta individual, histórica o generada."""
+    """Una pregunta individual, extraída de un examen histórico."""
 
     id: str
     text: str
     bloom_level: str | None = None
     dok_level: int | None = None
     standard_codes: list[str] = Field(default_factory=list)
-    source: str = "historical"  # "historical" | "generated"
+    source: str = "historical"
     part_type: str | None = None  # "pareo"|"verdadero_falso"|"opcion_multiple"|"respuesta_corta"|"ensayo"|"completar"
     points: int | None = None
-    options: list[str] | None = None  # solo si part_type == "opcion_multiple"
-    correct_option_index: int | None = None  # índice en `options`
 
 
 class DifficultyProfile(BaseModel):
@@ -60,38 +58,3 @@ class DifficultyProfile(BaseModel):
     source_exam: str
     total_questions: int
     counts: dict[str, int] = Field(default_factory=dict)  # clave "Bloom|DOKn"
-
-
-class ValidationIssue(BaseModel):
-    """Un problema detectado en una pregunta generada (ej. regla de redacción, duplicado)."""
-
-    question_id: str
-    rule: str
-    detail: str
-    severity: str = "warning"  # "warning" | "error"
-
-
-class GeneratedExam(BaseModel):
-    """Un examen generado: sus preguntas, el perfil de dificultad que debía cumplir, y
-    los problemas de validación encontrados."""
-
-    subject: str
-    grade: int | None = None
-    questions: list[Question]
-    target_profile: DifficultyProfile | None = None
-    issues: list[ValidationIssue] = Field(default_factory=list)
-
-
-class AuditCriterionResult(BaseModel):
-    """Resultado de un criterio de auditoría (ej. "puntos > 50"): si pasó y por qué."""
-
-    criterio: str
-    aprobado: bool
-    detalle: str
-
-
-class AuditReport(BaseModel):
-    """Los 5 criterios de auditoría evaluados sobre un examen, más el veredicto general."""
-
-    criterios: list[AuditCriterionResult] = Field(default_factory=list)
-    aprobado_general: bool = False

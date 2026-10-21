@@ -13,9 +13,6 @@ RAW_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 DOCUMENTS_DIR = PROCESSED_DIR / "documents"
 CHROMA_DIR = PROCESSED_DIR / "chroma"
-EXAMEN_GENERADO_DIR = PROJECT_ROOT / "Examen_generado"
-LECCION_GENERADA_DIR = PROJECT_ROOT / "Leccion_generada"
-REPORTES_AUDITORIA_DIR = PROJECT_ROOT / "Reportes_auditoria"
 STANDARDS_DIR = Path(__file__).resolve().parent / "standards"
 BANCO_EXAMENES_PATH = PROCESSED_DIR / "banco_examenes.jsonl"
 
@@ -24,23 +21,13 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 @dataclass(frozen=True)
 class Settings:
-    llm_provider: str
-    ollama_model: str
-    ollama_host: str
-    anthropic_api_key: str | None
-    anthropic_model: str
     embedding_model: str
 
 
 # Lee la configuración actual desde las variables de entorno (ya cargadas desde .env),
-# con un valor por defecto para cada una si no está definida.
+# con un valor por defecto si no está definida.
 def get_settings() -> Settings:
     return Settings(
-        llm_provider=os.getenv("LLM_PROVIDER", "mock").strip().lower(),
-        ollama_model=os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
-        ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
-        anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5"),
         embedding_model=os.getenv(
             "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
         ),

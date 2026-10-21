@@ -1,5 +1,5 @@
-"""Servidor MCP que expone el pipeline de generación/auditoría de exámenes como herramientas,
-para que una sesión de Claude pueda orquestar todo el proceso conversacionalmente.
+"""Servidor MCP que expone el pipeline de identificación de materia y estándares de exámenes
+como herramientas, para que una sesión de Claude pueda orquestarlo conversacionalmente.
 
 Cada herramienta es una envoltura delgada sobre funciones que ya existen en pipeline/ —
 no duplica lógica, reutiliza exactamente lo que usa pipeline/cli.py.
@@ -22,20 +22,21 @@ from pathlib import Path
 from mcp.server.mcpserver import MCPServer
 
 from pipeline.analysis.topic_balance import balance_report, cluster_questions, collect_historical_questions
-from pipeline.assemble.run import assemble_exam
-from pipeline.audit.docx_parser import ExamParseError, parse_generated_exam
-from pipeline.audit.exam_audit import audit_exam
-from pipeline.audit.report import write_audit_report
-from pipeline.cli import _pick_reference_exam, _resolve_subject
+from pipeline.cli import _resolve_subject
 from pipeline.config import BANCO_EXAMENES_PATH, get_settings
 from pipeline.difficulty.run import profile_file
-from pipeline.generation.run import generate_exam
-from pipeline.ingest.extractors import extract_text
 from pipeline.ingest.run import ingest_all
-from pipeline.ml.bloom_classifier import build_dataset, predict_exam_file, run_full_report, save_bank
+from pipeline.ml.bloom_classifier import (
+    build_dataset,
+    build_document_dataset,
+    predict_exam_file,
+    predict_exam_subject,
+    run_full_report,
+    save_bank,
+)
+from pipeline.ml.standards_classifier import evaluate_standards_model, predict_exam_standards
 from pipeline.standards.loader import get_standards_for
 from pipeline.tagging.run import tag_all
-from pipeline.validation.run import validate_exam
 
 mcp = MCPServer(name="capstone-pipeline")
 
@@ -80,68 +81,38 @@ def clasificar_dificultad(ruta_archivo: str) -> dict:
 
 
 @mcp.tool()
-def generar_examen(materia: str, grado: int, tema: str | None = None, perfil_de: str | None = None) -> dict:
-    """Genera, valida, audita y ensambla un examen nuevo en Examen_generado/ (.docx) para
-    materia/grado, usando un examen histórico como perfil de dificultad/tema objetivo.
-    NOTA: genera un examen completo (varias preguntas con su perfil), no una sola pregunta suelta."""
+def identificar_materia(ruta_archivo: str) -> dict:
+    """Identifica la materia (historia/tecnología) de un examen completo nuevo, entrenando
+    el clasificador con el banco actual (reentrena desde cero, ~1 min)."""
     try:
-        subject = _resolve_subject(materia)
-        reference_path = Path(perfil_de) if perfil_de else _pick_reference_exam(subject, grado)
-        target_profile, _historical_questions = profile_file(reference_path, subject=subject, grade=grado)
-        tema_resuelto = tema or reference_path.stem
-        reference_text = extract_text(reference_path)
-
-        exam = generate_exam(subject, grado, target_profile, tema=tema_resuelto, reference_text=reference_text)
-        exam = validate_exam(exam)
-
-        settings = get_settings()
-        audit = audit_exam(exam, reference_text=reference_text, embedding_model=settings.embedding_model)
-        out_path = assemble_exam(exam, tema=tema_resuelto, audit=audit, reference_path=str(reference_path))
+        return predict_exam_subject(Path(ruta_archivo))
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
 
-    return {
-        "archivo_generado": str(out_path),
-        "material_de_referencia": str(reference_path),
-        "perfil_objetivo": target_profile.model_dump(),
-        "auditoria_aprobada": audit.aprobado_general,
-        "auditoria": [c.model_dump() for c in audit.criterios],
-        "preguntas": [q.model_dump() for q in exam.questions],
-    }
+
+@mcp.tool()
+def identificar_estandares(ruta_archivo: str, materia: str | None = None) -> dict:
+    """Identifica qué estándares curriculares cumple un examen completo nuevo. Si no se da
+    `materia`, primero se infiere con identificar_materia/predict_exam_subject. LIMITACIÓN
+    HONESTA: las etiquetas de entrenamiento son pseudo-etiquetas del etiquetado por
+    embeddings (pipeline/tagging/run.py), no juicio humano — ver pipeline/ml/standards_classifier.py."""
+    try:
+        subject = _resolve_subject(materia) if materia else predict_exam_subject(Path(ruta_archivo))["materia_predicha"]
+        resultado = predict_exam_standards(Path(ruta_archivo), subject=subject)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
+    return resultado
 
 
 @mcp.tool()
-def auditar_examen(ruta_docx: str, perfil_de: str | None = None) -> dict:
-    """Audita un examen .docx ya generado (sin volver a generarlo) contra los 5 criterios
-    de docs/criterios_auditoria.md."""
+def entrenar_clasificador_estandares(materia: str) -> dict:
+    """Entrena/evalúa el clasificador multi-etiqueta de estándares curriculares para una
+    materia. Ver limitaciones en pipeline/ml/standards_classifier.py."""
     try:
-        exam, reference_path_in_doc, tema = parse_generated_exam(Path(ruta_docx))
-    except ExamParseError as exc:
+        subject = _resolve_subject(materia)
+    except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
-
-    reference_path_str = perfil_de or reference_path_in_doc
-    reference_text = extract_text(Path(reference_path_str)) if reference_path_str else ""
-
-    settings = get_settings()
-    report = audit_exam(exam, reference_text=reference_text, embedding_model=settings.embedding_model)
-    report_path = write_audit_report(exam, report, tema=tema or Path(ruta_docx).stem, reference_path=reference_path_str)
-
-    sin_clave_de_respuesta = any(
-        q.part_type == "opcion_multiple" and q.correct_option_index is None for q in exam.questions
-    )
-
-    return {
-        "material_de_referencia": reference_path_str,
-        "aprobado_general": report.aprobado_general,
-        "criterios": [c.model_dump() for c in report.criterios],
-        "reporte_guardado_en": str(report_path),
-        "aviso_fuga_respuesta": (
-            "Este .docx no guarda cuál opción es la correcta (por diseño) — 'sin fuga de "
-            "respuesta' no se pudo confirmar para sus preguntas de opción múltiple."
-            if sin_clave_de_respuesta
-            else None
-        ),
-    }
+    return evaluate_standards_model(subject)
 
 
 @mcp.tool()
@@ -161,28 +132,28 @@ def entrenar_clasificador_dificultad() -> dict:
 
 
 @mcp.tool()
-def predecir_examen(ruta_archivo: str, objetivo: str = "dificultad") -> dict:
-    """Entrena el clasificador ganador con el banco actual (reentrena desde cero, ~1 min) y
-    predice materia o dificultad ("materia"|"dificultad") para cada pregunta de un archivo
-    nuevo. Es inferencia real sobre un archivo, no una evaluación train/test."""
-    label_attr = "subject" if objetivo.strip().lower() in ("materia", "subject") else "bloom_level"
+def predecir_dificultad(ruta_archivo: str) -> dict:
+    """Predice el nivel Bloom/DOK de cada pregunta de un archivo nuevo (clasificador
+    por-pregunta, ya que Bloom sí varía dentro de un mismo examen). Para materia o
+    estándares a nivel de examen completo, usar identificar_materia/identificar_estandares."""
     try:
-        return predict_exam_file(Path(ruta_archivo), label_attr=label_attr)
+        return predict_exam_file(Path(ruta_archivo), label_attr="bloom_level")
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
 
 
 @mcp.tool()
 def entrenar_clasificador_materia() -> dict:
-    """Entrena/evalúa un clasificador supervisado de MATERIA. LIMITACIÓN: con solo 2 materias de
-    vocabulario muy distinto, el accuracy global sale trivialmente alto (~98%); el F1-macro
-    (métrica real de selección de modelo) es más modesto por el desbalance entre materias
-    (87 preguntas de technology vs 603 de history)."""
-    return run_full_report(label_attr="subject")
+    """Entrena/evalúa el clasificador supervisado de MATERIA a nivel de EXAMEN COMPLETO (una
+    fila por documento, no por pregunta). A diferencia de Bloom, esta etiqueta sí es verdad
+    de terreno real (viene de la carpeta de origen en data/raw/). LIMITACIÓN: con solo 2
+    materias de vocabulario muy distinto y pocos documentos (96 historia / 34 tecnología
+    tipo examen/review), el F1-macro es modesto por el desbalance y el tamaño chico del banco."""
+    return run_full_report(label_attr="subject", items=build_document_dataset())
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Servidor MCP del pipeline de exámenes")
+    parser = argparse.ArgumentParser(description="Servidor MCP de identificación de materia/estándares de exámenes")
     parser.add_argument("--http", action="store_true", help="Correr sobre HTTP en vez de stdio")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
