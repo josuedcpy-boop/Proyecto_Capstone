@@ -14,6 +14,7 @@ from pathlib import Path
 import streamlit as st
 
 from pipeline.analysis.topic_balance import balance_report, cluster_questions, collect_historical_questions
+from pipeline.audit.exam_review import review_exam
 from pipeline.cli import _resolve_subject
 from pipeline.config import get_settings
 from pipeline.ingest.run import ingest_all
@@ -49,21 +50,24 @@ with tab_identificar:
     st.caption(
         "Sube un examen (propio o de cualquier docente) y el sistema entrena los "
         "clasificadores con el banco histórico actual (~1 min) para identificar de qué "
-        "materia es y qué estándares curriculares cumple."
+        "materia es, qué estándares curriculares cumple, y auditar su forma (puntuación, "
+        "variedad de preguntas, duplicados internos)."
     )
     archivo_subido = st.file_uploader("Examen (.docx/.pdf/.pptx/.xlsx/.txt)", key="id_archivo")
 
-    if archivo_subido and st.button("Identificar", type="primary"):
-        with st.spinner("Entrenando clasificadores y prediciendo..."):
+    if archivo_subido and st.button("Identificar y auditar", type="primary"):
+        with st.spinner("Entrenando clasificadores, prediciendo y auditando..."):
             ruta_temporal = _save_uploaded_file(archivo_subido)
             try:
                 materia_resultado = predict_exam_subject(ruta_temporal)
                 estandares_resultado = predict_exam_standards(
                     ruta_temporal, subject=materia_resultado["materia_predicha"]
                 )
+                auditoria_resultado = review_exam(ruta_temporal, subject=materia_resultado["materia_predicha"])
                 st.session_state["id_resultado"] = {
                     "materia": materia_resultado,
                     "estandares": estandares_resultado,
+                    "auditoria": auditoria_resultado,
                 }
             except Exception as exc:  # noqa: BLE001
                 st.session_state["id_resultado"] = None
@@ -90,6 +94,27 @@ with tab_identificar:
             )
         else:
             st.info(estandares_resultado["aviso"])
+
+        auditoria_resultado = resultado_id["auditoria"]
+        st.write(
+            f"**Auditoría de forma: {'APROBADO' if auditoria_resultado['aprobado_general'] else 'NO APROBADO'}** "
+            f"({auditoria_resultado['total_preguntas']} pregunta(s) detectada(s))"
+        )
+        st.table(
+            [
+                {
+                    "Estado": "OK" if c["aprobado"] else "FALLA",
+                    "Criterio": c["criterio"],
+                    "Detalle": c["detalle"],
+                    "Por qué falla": c["explicacion"],
+                }
+                for c in auditoria_resultado["criterios"]
+            ]
+        )
+        st.caption(
+            "No se audita 'fuga de respuesta' — un examen real subido no trae la clave de "
+            "respuesta estructurada (ver pipeline/audit/exam_review.py)."
+        )
 
 with tab_balance:
     st.subheader("Balance de temas (k-means + PCA sobre el banco histórico)")

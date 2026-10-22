@@ -36,6 +36,8 @@ from pipeline.ingest.run import load_all_documents
 from pipeline.tagging.run import document_coverage, tag_document
 
 _MIN_DOCS_FOR_EVAL = 10
+_RANDOM_STATE = 42  # misma semilla que pipeline/ml/bloom_classifier.py, para reproducibilidad
+_TEST_SIZE = 0.2  # 80/20 train/test a nivel de documento
 
 
 # Para cada documento tipo examen/review de esa materia, corre el etiquetado por embeddings
@@ -79,7 +81,7 @@ def evaluate_standards_model(subject: str) -> dict:
     codigos = list(binarizer.classes_)
     soporte = {codigo: int(y[:, i].sum()) for i, codigo in enumerate(codigos)}
 
-    train_idx, test_idx = train_test_split(range(len(texts)), test_size=0.25, random_state=0)
+    train_idx, test_idx = train_test_split(range(len(texts)), test_size=_TEST_SIZE, random_state=_RANDOM_STATE)
     train_texts = [texts[i] for i in train_idx]
     test_texts = [texts[i] for i in test_idx]
 

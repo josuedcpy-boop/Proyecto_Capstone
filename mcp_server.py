@@ -22,6 +22,7 @@ from pathlib import Path
 from mcp.server.mcpserver import MCPServer
 
 from pipeline.analysis.topic_balance import balance_report, cluster_questions, collect_historical_questions
+from pipeline.audit.exam_review import review_exam
 from pipeline.cli import _resolve_subject
 from pipeline.config import BANCO_EXAMENES_PATH, get_settings
 from pipeline.difficulty.run import profile_file
@@ -113,6 +114,17 @@ def entrenar_clasificador_estandares(materia: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
     return evaluate_standards_model(subject)
+
+
+@mcp.tool()
+def auditar_examen(ruta_archivo: str) -> dict:
+    """Audita la FORMA de cualquier examen (propio o subido por un usuario, no tiene que ser
+    generado por este pipeline): puntuación total, variedad de tipos de pregunta, y
+    duplicados internos. No chequea 'fuga de respuesta' — ver pipeline/audit/exam_review.py."""
+    try:
+        return review_exam(Path(ruta_archivo))
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
 
 
 @mcp.tool()

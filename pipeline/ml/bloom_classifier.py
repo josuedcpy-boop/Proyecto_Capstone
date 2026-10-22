@@ -41,6 +41,8 @@ from pipeline.ingest.run import load_all_documents
 
 _SUBJECTS = ("history", "technology")
 _MAX_CV_SPLITS = 5
+_RANDOM_STATE = 42  # semilla fija para que el split y los modelos sean reproducibles
+_TEST_SIZE = 0.2  # 80/20 train/test, agrupado por examen (ver train_test_report)
 
 
 @dataclass
@@ -128,14 +130,14 @@ def _safe_n_splits(labels: list[str], groups: list[str]) -> int:
 def evaluate_models(items: list[LabeledQuestion], label_attr: str = "bloom_level") -> dict:
     texts, labels, groups = _unpack(items, label_attr)
     n_splits = _safe_n_splits(labels, groups)
-    cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
+    cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=_RANDOM_STATE)
 
     results: dict[str, dict] = {}
 
     simple_models = {
         "linea_base_clase_mayoritaria": DummyClassifier(strategy="most_frequent"),
         "regresion_logistica": LogisticRegression(max_iter=1000),
-        "arbol_de_decision": DecisionTreeClassifier(random_state=0),
+        "arbol_de_decision": DecisionTreeClassifier(random_state=_RANDOM_STATE),
     }
     for name, estimator in simple_models.items():
         pipeline = _make_pipeline(estimator)
@@ -144,11 +146,11 @@ def evaluate_models(items: list[LabeledQuestion], label_attr: str = "bloom_level
 
     grid_models = {
         "random_forest": (
-            RandomForestClassifier(random_state=0),
+            RandomForestClassifier(random_state=_RANDOM_STATE),
             {"clf__n_estimators": [100, 200], "clf__max_depth": [None, 10, 20]},
         ),
         "boosting": (
-            GradientBoostingClassifier(random_state=0),
+            GradientBoostingClassifier(random_state=_RANDOM_STATE),
             {"clf__n_estimators": [100, 200], "clf__learning_rate": [0.05, 0.1], "clf__max_depth": [2, 3]},
         ),
     }
@@ -170,9 +172,9 @@ def _build_winner_estimator(name: str, hyperparameters: dict | None):
     base = {
         "linea_base_clase_mayoritaria": DummyClassifier(strategy="most_frequent"),
         "regresion_logistica": LogisticRegression(max_iter=1000),
-        "arbol_de_decision": DecisionTreeClassifier(random_state=0),
-        "random_forest": RandomForestClassifier(random_state=0),
-        "boosting": GradientBoostingClassifier(random_state=0),
+        "arbol_de_decision": DecisionTreeClassifier(random_state=_RANDOM_STATE),
+        "random_forest": RandomForestClassifier(random_state=_RANDOM_STATE),
+        "boosting": GradientBoostingClassifier(random_state=_RANDOM_STATE),
     }[name]
     pipeline = _make_pipeline(base)
     if hyperparameters:
@@ -191,7 +193,7 @@ def train_test_report(
     label_attr: str = "bloom_level",
 ) -> dict:
     texts, labels, groups = _unpack(items, label_attr)
-    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=0)
+    splitter = GroupShuffleSplit(n_splits=1, test_size=_TEST_SIZE, random_state=_RANDOM_STATE)
     train_idx, test_idx = next(splitter.split(texts, labels, groups))
 
     train_groups = {groups[i] for i in train_idx}

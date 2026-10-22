@@ -1,0 +1,1023 @@
+<title>Identificador de Materia y Estándares</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ---------------------------------------------------------------
+   Plan
+   Layout: single scrolling column (max 920px), sticky mini-nav,
+   card panels per section, bar charts drawn as hand-built SVG.
+   Color: validated default palette — 5 fixed model colors (blue /
+   orange / aqua / yellow / magenta) held constant across the Bloom
+   and Materia charts; reserved good/critical for audit pass-fail.
+   Type: IBM Plex Sans (prose/UI) + IBM Plex Mono (data: model
+   names, standard codes, CLI commands, numbers).
+----------------------------------------------------------------- */
+:root {
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  color-scheme: light;
+  --bg:            #f9f9f7;
+  --surface:       #fcfcfb;
+  --surface-sunken:#f1f0ec;
+  --fg:            #0b0b0b;
+  --fg-secondary:  #52514e;
+  --fg-muted:      #898781;
+  --border:        rgba(11,11,11,0.10);
+  --grid:          #e1e0d9;
+  --baseline:      #c3c2b7;
+
+  --accent:        #2a78d6;
+  --accent-wash:   #e9f0fb;
+
+  --model-1: #2a78d6; /* línea base */
+  --model-2: #eb6834; /* regresión logística */
+  --model-3: #1baf7a; /* árbol de decisión */
+  --model-4: #eda100; /* random forest */
+  --model-5: #e87ba4; /* boosting */
+
+  --good:     #0ca30c;
+  --critical: #d03b3b;
+  --good-wash: #e9f7e9;
+  --critical-wash: #fbebea;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:            #0d0d0d;
+    --surface:       #1a1a19;
+    --surface-sunken:#161615;
+    --fg:            #f0efec;
+    --fg-secondary:  #c3c2b7;
+    --fg-muted:      #898781;
+    --border:        rgba(255,255,255,0.10);
+    --grid:          #2c2c2a;
+    --baseline:      #383835;
+
+    --accent:        #3987e5;
+    --accent-wash:   #152233;
+
+    --model-1: #3987e5;
+    --model-2: #d95926;
+    --model-3: #199e70;
+    --model-4: #c98500;
+    --model-5: #d55181;
+
+    --good:     #0ca30c;
+    --critical: #e66767;
+    --good-wash: #10210f;
+    --critical-wash: #2a1414;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:            #0d0d0d;
+  --surface:       #1a1a19;
+  --surface-sunken:#161615;
+  --fg:            #f0efec;
+  --fg-secondary:  #c3c2b7;
+  --fg-muted:      #898781;
+  --border:        rgba(255,255,255,0.10);
+  --grid:          #2c2c2a;
+  --baseline:      #383835;
+
+  --accent:        #3987e5;
+  --accent-wash:   #152233;
+
+  --model-1: #3987e5;
+  --model-2: #d95926;
+  --model-3: #199e70;
+  --model-4: #c98500;
+  --model-5: #d55181;
+
+  --good:     #0ca30c;
+  --critical: #e66767;
+  --good-wash: #10210f;
+  --critical-wash: #2a1414;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 920px; margin: 0 auto; min-width: 0; }
+
+a { color: var(--accent); }
+code, .mono { font-family: var(--font-mono); }
+
+/* top band for the sticky nav's safe-area clearance */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--bg);
+}
+
+nav.topnav {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 9;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+  padding-block: 10px;
+}
+nav.topnav .wrap {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  align-items: baseline;
+}
+nav.topnav .brand {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  margin-right: 6px;
+}
+nav.topnav a {
+  color: var(--fg-secondary);
+  text-decoration: none;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+nav.topnav a:hover { color: var(--fg); }
+
+header.hero { padding-block: 44px 28px; }
+header.hero .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 10px;
+}
+header.hero h1 {
+  font-size: clamp(28px, 4.2vw, 40px);
+  line-height: 1.12;
+  margin: 0 0 14px;
+  text-wrap: balance;
+  letter-spacing: -0.01em;
+}
+header.hero p.lede {
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+  max-width: 62ch;
+  margin: 0;
+}
+
+section { padding-block: 40px; border-top: 1px solid var(--border); }
+section:first-of-type { border-top: none; }
+section h2 {
+  font-size: 22px;
+  margin: 0 0 6px;
+  letter-spacing: -0.01em;
+}
+section .section-sub {
+  color: var(--fg-secondary);
+  font-size: 14.5px;
+  margin: 0 0 24px;
+  max-width: 68ch;
+  line-height: 1.5;
+}
+
+/* pipeline steps */
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  counter-reset: step;
+}
+.pipeline .step {
+  flex: 1 1 150px;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 14px 16px;
+  position: relative;
+}
+.pipeline .step::before {
+  counter-increment: step;
+  content: counter(step);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 8px;
+}
+.pipeline .step strong { display: block; font-size: 14px; margin-bottom: 3px; }
+.pipeline .step span { font-size: 12.5px; color: var(--fg-muted); line-height: 1.4; }
+.pipeline .arrow {
+  display: flex;
+  align-items: center;
+  color: var(--fg-muted);
+  font-size: 16px;
+  padding: 0 2px;
+}
+
+/* cards / panels */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 22px 20px;
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.panel h3 {
+  font-size: 15.5px;
+  margin: 0 0 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.panel h3 .tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+.panel .meta {
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  margin: 0 0 18px;
+}
+
+/* legend */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.legend .item { display: flex; align-items: center; gap: 6px; }
+.legend .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+
+/* bar chart (shared) */
+.chartbox { width: 100%; overflow: visible; }
+.chartbox svg { width: 100%; display: block; overflow: visible; }
+.bar-label { font-family: var(--font-mono); font-size: 11.5px; fill: var(--fg-secondary); }
+.bar-value { font-family: var(--font-mono); font-size: 12px; font-weight: 600; fill: var(--fg); }
+.bar-value.winner { fill: var(--fg); }
+.axis-line { stroke: var(--baseline); stroke-width: 1; }
+.grid-line { stroke: var(--grid); stroke-width: 1; }
+.bar-rect { cursor: pointer; }
+.winner-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  fill: var(--fg);
+}
+
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--fg);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-radius: 7px;
+  max-width: 240px;
+  opacity: 0;
+  transform: translate(-50%, -100%);
+  transition: opacity 0.1s;
+  z-index: 20;
+  white-space: nowrap;
+}
+.tooltip.show { opacity: 1; }
+
+/* standard-set tabs */
+.tabs { display: flex; gap: 6px; margin-bottom: 18px; }
+.tabs button {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--surface-sunken);
+  color: var(--fg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+.tabs button[aria-selected="true"] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.stat-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+.stat-tile {
+  flex: 1 1 140px;
+  background: var(--surface-sunken);
+  border-radius: 10px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.stat-tile .num {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  display: block;
+}
+.stat-tile .lbl { font-size: 11.5px; color: var(--fg-muted); }
+
+table.codes {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+table.codes th, table.codes td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+table.codes th { color: var(--fg-muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+table.codes td.code { font-family: var(--font-mono); font-weight: 600; }
+.table-scroll { overflow-x: auto; }
+
+.note {
+  background: var(--surface-sunken);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+  margin-top: 16px;
+}
+.note strong { color: var(--fg); }
+
+/* audit criteria */
+.criterion {
+  display: flex;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.criterion:last-child { border-bottom: none; }
+.criterion .pill {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+}
+.criterion .pill.ok { background: var(--good-wash); color: var(--good); }
+.criterion .pill.fail { background: var(--critical-wash); color: var(--critical); }
+.criterion .body { min-width: 0; }
+.criterion .title { font-size: 14px; font-weight: 500; margin-bottom: 3px; }
+.criterion .detail { font-size: 13px; color: var(--fg-secondary); margin-bottom: 4px; }
+.criterion .why { font-size: 12.5px; color: var(--fg-muted); }
+.criterion .why b { color: var(--fg-secondary); font-weight: 600; }
+
+.upload-panel { padding-bottom: 18px; }
+.upload-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.upload-drop {
+  flex: 1 1 240px;
+  min-width: 0;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  padding: 11px 14px;
+  font-size: 13.5px;
+  color: var(--fg-secondary);
+  background: var(--surface-sunken);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-drop:hover { border-color: var(--accent); color: var(--fg); }
+.btn-primary {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 9px;
+  padding: 11px 18px;
+  cursor: pointer;
+  flex: none;
+}
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.server-hint {
+  font-size: 12.5px;
+  color: var(--critical);
+  margin: 12px 0 0;
+}
+.loading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+  padding: 6px 0;
+}
+.spinner {
+  width: 13px; height: 13px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-row { font-size: 13px; color: var(--critical); padding: 6px 0; }
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--surface-sunken);
+  border-radius: 7px;
+  padding: 5px 10px;
+  margin-bottom: 16px;
+}
+
+.identify-cards { display: flex; gap: 14px; flex-wrap: wrap; }
+.identify-cards .card {
+  flex: 1 1 220px;
+  min-width: 0;
+  background: var(--surface-sunken);
+  border-radius: 10px;
+  padding: 16px;
+}
+.identify-cards .card .k { font-size: 11.5px; color: var(--fg-muted); margin-bottom: 6px; }
+.identify-cards .card .v { font-size: 19px; font-weight: 600; font-family: var(--font-mono); }
+.identify-cards .card .v small { font-size: 12px; font-weight: 400; color: var(--fg-muted); display: block; margin-top: 4px; }
+.conf-bar { height: 5px; border-radius: 3px; background: var(--grid); margin-top: 10px; overflow: hidden; }
+.conf-bar > span { display: block; height: 100%; background: var(--accent); }
+
+pre.cli {
+  background: var(--surface-sunken);
+  border-radius: 10px;
+  padding: 16px 18px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow-x: auto;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+pre.cli .cmt { color: var(--fg-muted); }
+
+footer {
+  padding-block: 36px 60px;
+  border-top: 1px solid var(--border);
+}
+footer p { color: var(--fg-muted); font-size: 12.5px; line-height: 1.6; max-width: 68ch; }
+
+@media (max-width: 680px) {
+  .pipeline { flex-direction: column; }
+  .pipeline .arrow { display: none; }
+}
+</style>
+
+<nav class="topnav">
+  <div class="wrap">
+    <span class="brand">Identificador de exámenes</span>
+    <a href="#analizar">Analiza tu examen</a>
+    <a href="#objetivo">Objetivo</a>
+    <a href="#modelos">Modelos</a>
+    <a href="#estandares">Estándares</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Capstone MAI540 — Josue Candelaria</p>
+    <h1>Qué materia es este examen, y qué estándares cumple</h1>
+    <p class="lede">Un pipeline que aprende de exámenes reales de Historia y Tecnología (5.º–8.º grado) para identificar, con modelos entrenados, la materia y los estándares curriculares de cualquier examen nuevo — y auditar su forma. Sin LLM, sin API key: embeddings locales + scikit-learn.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="analizar">
+  <h2>Analiza tu propio examen</h2>
+  <p class="section-sub">Sube un archivo (.docx/.pdf/.pptx/.xlsx/.txt) desde tu computadora. Esto corre de verdad contra los clasificadores del proyecto — nada en esta sección está inventado. Requiere que <code>python web/server.py</code> esté corriendo (ver nota abajo).</p>
+
+  <div class="panel upload-panel">
+    <div class="upload-row">
+      <label class="upload-drop" for="file-input">
+        <span id="upload-label">Elegir examen…</span>
+      </label>
+      <input type="file" id="file-input" accept=".docx,.pdf,.pptx,.xlsx,.txt" hidden>
+      <button id="analyze-btn" class="btn-primary" disabled>Identificar y auditar</button>
+    </div>
+    <p class="server-hint" id="server-hint" hidden>No se pudo conectar con el servidor local. Corre <code>python web/server.py</code> en una terminal, en la raíz del proyecto, y abre <code>http://localhost:8600</code> (no este archivo con doble clic).</p>
+  </div>
+
+  <div class="panel">
+    <h3>Materia y estándares <span class="tag" id="analizar-materia-tag">ejemplo — History Test 7th.docx</span></h3>
+    <div id="result-materia"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Auditoría de forma <span class="tag" id="analizar-audit-tag">ejemplo — History Test 7th.docx</span></h3>
+    <div id="result-auditoria"></div>
+  </div>
+
+  <pre class="cli"><span class="cmt"># mismo flujo por terminal, sin subir nada</span>
+python -m pipeline.cli predecir-examen "tu_examen.docx" --objetivo materia
+python -m pipeline.cli predecir-examen "tu_examen.docx" --objetivo estandares
+python -m pipeline.cli auditar-examen  "tu_examen.docx"</pre>
+</section>
+
+<section id="objetivo">
+  <h2>El objetivo</h2>
+  <p class="section-sub">Construir exámenes consistentes con los estándares toma tiempo docente, y verificar a mano de qué estándares depende un examen ya escrito es igual de lento. Este sistema parte de un banco histórico de exámenes reales y entrena modelos que, dado un examen nuevo, contestan dos preguntas y audita una tercera.</p>
+  <div class="pipeline">
+    <div class="step"><strong>Ingesta</strong><span>Extrae texto de .docx/.pdf/.pptx/.xlsx</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><strong>Etiquetado</strong><span>Cobertura de estándares por embeddings</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><strong>Perfil Bloom/DOK</strong><span>Dificultad de cada pregunta histórica</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><strong>Entrenar</strong><span>3 clasificadores sobre el banco</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><strong>Identificar + auditar</strong><span>Sobre un examen nuevo</span></div>
+  </div>
+</section>
+
+<section id="modelos">
+  <h2>Cómo se comparan los modelos al entrenar</h2>
+  <p class="section-sub">Dos clasificadores comparan 5 modelos con validación cruzada agrupada por examen (nunca se reparten preguntas del mismo examen entre entrenamiento y prueba) y se eligen por F1-macro, no por accuracy — con clases desbalanceadas, accuracy sube solo por predecir siempre la clase mayoritaria.</p>
+
+  <div class="legend" id="model-legend"></div>
+
+  <div class="panel">
+    <h3>Materia de un examen completo <span class="tag">ml-subject-eval</span></h3>
+    <p class="meta">130 documentos históricos (96 historia / 34 tecnología) · una fila por examen, no por pregunta · split 80/20, semilla 42 · 104 train / 26 test</p>
+    <div class="chartbox" id="chart-materia"></div>
+    <div class="note"><strong>Esta etiqueta es verdad de terreno real</strong> — viene de la carpeta de origen (<code>data/raw/history/…</code> vs <code>data/raw/technology/…</code>), no de una heurística. En el test nunca visto: boosting acertó 20/20 historia y 5/6 tecnología.</div>
+  </div>
+
+  <div class="panel">
+    <h3>Dificultad Bloom, por pregunta <span class="tag">ml-bloom-eval</span></h3>
+    <p class="meta">690 preguntas históricas (104 exámenes train / 26 test) · 466 train / 224 test preguntas · split 80/20, semilla 42</p>
+    <div class="chartbox" id="chart-bloom"></div>
+    <div class="note"><strong>Límite honesto:</strong> la etiqueta de entrenamiento es la salida de la heurística de reglas del propio proyecto (verbo → nivel Bloom), no juicio humano. El F1-macro, más bajo que el de materia, refleja clases muy desbalanceadas (532 de 690 preguntas son "Recordar") y que el modelo mide si puede <em>reproducir</em> la regla, no si acierta contra un criterio independiente.</div>
+  </div>
+</section>
+
+<section id="estandares">
+  <h2>Estándares curriculares (multi-etiqueta)</h2>
+  <p class="section-sub">Un examen puede cumplir varios estándares a la vez. Este clasificador (regresión logística multi-etiqueta, sin comparación de 5 modelos — con tan pocos documentos por código no sería significativa) aprende a reproducir el etiquetado por similaridad de embeddings que ya existía, ahora desde texto crudo.</p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-subject="historia">Historia</button>
+    <button role="tab" aria-selected="false" data-subject="tecnologia">Tecnología</button>
+  </div>
+
+  <div class="panel">
+    <h3 id="std-title">Historia <span class="tag">ml-estandares-eval --materia historia</span></h3>
+    <p class="meta" id="std-meta">96 documentos (76 train / 20 test) · 8 códigos de estándar</p>
+    <div class="stat-row" id="std-stats"></div>
+    <div class="chartbox" id="chart-estandares"></div>
+    <div class="table-scroll">
+      <table class="codes" id="std-table">
+        <thead><tr><th>Código</th><th>Nombre</th><th>Soporte</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="note"><strong>Límite honesto, el más fuerte de los tres modelos:</strong> no existe verdad de terreno humana sobre qué estándares cumple cada examen — las etiquetas son pseudo-etiquetas del etiquetado por embeddings (umbral de similaridad 0.25 por fragmento). Con ~20 códigos repartidos en ~130 documentos, la mayoría de los códigos tienen muy pocos documentos positivos: el modelo aprende el código dominante (<b>CC</b> en historia, 66 de 96 documentos) y no tiene señal suficiente para los demás.</div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>La sección "Analiza tu propio examen" corre en vivo contra <code>web/server.py</code>, un servidor local Flask que reutiliza las mismas funciones que <code>pipeline/cli.py</code>/<code>mcp_server.py</code>/<code>app.py</code> — nada sale de este equipo. El resto de la página (comparación de modelos y estándares) son resultados ya calculados al correr el pipeline sobre el banco histórico (data/raw/, Historia y Tecnología 5.º–8.º). Capstone MAI540, Josue Candelaria.</p>
+  </div>
+</footer>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var tooltip = document.getElementById("tooltip");
+  function showTip(evt, html) {
+    tooltip.innerHTML = html;
+    tooltip.style.left = evt.clientX + window.scrollX + "px";
+    tooltip.style.top = evt.clientY + window.scrollY - 10 + "px";
+    tooltip.classList.add("show");
+  }
+  function hideTip() { tooltip.classList.remove("show"); }
+
+  function svgEl(tag, attrs) {
+    var el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  // Horizontal bar chart: one bar per model, fixed color per entity,
+  // direct value labels always on (complete at rest), hover tooltip
+  // adds hyperparameters for the two grid-searched models.
+  function renderModelChart(containerId, data) {
+    var container = document.getElementById(containerId);
+    var width = 760, rowH = 40, padTop = 8, padBottom = 8;
+    var height = data.length * rowH + padTop + padBottom;
+    var labelW = 190, rightMargin = 150, barAreaW = width - labelW - rightMargin;
+    var max = 1.0;
+
+    var svg = svgEl("svg", { viewBox: "0 0 " + width + " " + height, role: "img", "aria-label": "Comparación de modelos" });
+
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+      var x = labelW + t * barAreaW;
+      svg.appendChild(svgEl("line", { x1: x, x2: x, y1: padTop, y2: height - padBottom, class: "grid-line" }));
+      var tl = svgEl("text", { x: x, y: 14, class: "bar-label", "text-anchor": "middle" });
+      tl.textContent = t.toFixed(2);
+      svg.appendChild(tl);
+    });
+
+    data.forEach(function (d, i) {
+      var y = padTop + 16 + i * rowH;
+      var barH = 18;
+      var w = (d.value / max) * barAreaW;
+
+      var nameT = svgEl("text", { x: labelW - 12, y: y + barH - 4, class: "bar-label", "text-anchor": "end" });
+      nameT.textContent = d.name;
+      svg.appendChild(nameT);
+
+      var rect = svgEl("rect", {
+        x: labelW, y: y, width: Math.max(w, 2), height: barH, rx: 4,
+        class: "bar-rect"
+      });
+      rect.style.fill = d.color;
+      svg.appendChild(rect);
+
+      var valT = svgEl("text", { x: labelW + w + 8, y: y + barH - 4, class: "bar-value" + (d.winner ? " winner" : "") });
+      valT.textContent = d.value.toFixed(4);
+      svg.appendChild(valT);
+
+      if (d.winner) {
+        var badge = svgEl("text", { x: labelW + w + 68, y: y + barH - 4, class: "winner-badge" });
+        badge.textContent = "← GANADOR";
+        svg.appendChild(badge);
+      }
+
+      rect.addEventListener("mousemove", function (evt) {
+        var html = "<b>" + d.name + "</b><br>F1-macro: " + d.value.toFixed(4);
+        if (d.hp) html += "<br>" + d.hp;
+        showTip(evt, html);
+      });
+      rect.addEventListener("mouseleave", hideTip);
+    });
+
+    svg.appendChild(svgEl("line", { x1: labelW, x2: labelW, y1: padTop, y2: height - padBottom, class: "axis-line" }));
+    container.innerHTML = "";
+    container.appendChild(svg);
+  }
+
+  function renderSupportChart(containerId, codes) {
+    var container = document.getElementById(containerId);
+    var width = 760, rowH = 32, padTop = 8, padBottom = 8;
+    var height = codes.length * rowH + padTop + padBottom;
+    var labelW = 110, barAreaW = width - labelW - 70;
+    var max = Math.max.apply(null, codes.map(function (c) { return c.soporte; }));
+
+    var svg = svgEl("svg", { viewBox: "0 0 " + width + " " + height, role: "img", "aria-label": "Soporte por código de estándar" });
+
+    codes.forEach(function (d, i) {
+      var y = padTop + 10 + i * rowH;
+      var barH = 16;
+      var w = max ? (d.soporte / max) * barAreaW : 0;
+
+      var nameT = svgEl("text", { x: labelW - 12, y: y + barH - 3, class: "bar-label", "text-anchor": "end" });
+      nameT.textContent = d.codigo;
+      svg.appendChild(nameT);
+
+      var rect = svgEl("rect", { x: labelW, y: y, width: Math.max(w, 2), height: barH, rx: 3 });
+      rect.style.fill = "var(--accent)";
+      svg.appendChild(rect);
+
+      var valT = svgEl("text", { x: labelW + w + 8, y: y + barH - 3, class: "bar-value" });
+      valT.textContent = d.soporte + " doc" + (d.soporte === 1 ? "" : "s");
+      svg.appendChild(valT);
+
+      rect.addEventListener("mousemove", function (evt) {
+        showTip(evt, "<b>" + d.codigo + "</b> — " + esc(d.nombre) + "<br>Soporte: " + d.soporte + " documento(s)<br>F1: " + d.f1.toFixed(2));
+      });
+      rect.addEventListener("mouseleave", hideTip);
+    });
+
+    svg.appendChild(svgEl("line", { x1: labelW, x2: labelW, y1: padTop, y2: height - padBottom, class: "axis-line" }));
+    container.innerHTML = "";
+    container.appendChild(svg);
+  }
+
+  var MODEL_ORDER = [
+    { key: "linea_base", name: "línea base", color: "var(--model-1)" },
+    { key: "regresion_logistica", name: "regresión logística", color: "var(--model-2)" },
+    { key: "arbol_de_decision", name: "árbol de decisión", color: "var(--model-3)" },
+    { key: "random_forest", name: "random forest", color: "var(--model-4)" },
+    { key: "boosting", name: "boosting", color: "var(--model-5)" }
+  ];
+
+  var MATERIA = { linea_base: 0.4247, regresion_logistica: 0.6722, arbol_de_decision: 0.7905, random_forest: 0.878, boosting: 0.8789 };
+  var MATERIA_HP = { random_forest: "max_depth: None, n_estimators: 100", boosting: "learning_rate: 0.05, max_depth: 2, n_estimators: 100" };
+
+  var BLOOM = { linea_base: 0.1645, regresion_logistica: 0.299, arbol_de_decision: 0.4393, random_forest: 0.3102, boosting: 0.4951 };
+  var BLOOM_HP = { random_forest: "max_depth: 20, n_estimators: 200", boosting: "learning_rate: 0.05, max_depth: 2, n_estimators: 200" };
+
+  function buildSeries(values, hp) {
+    var winnerKey = MODEL_ORDER.reduce(function (a, b) { return values[b.key] > values[a.key] ? b : a; }).key;
+    return MODEL_ORDER.map(function (m) {
+      return { name: m.name, value: values[m.key], color: m.color, winner: m.key === winnerKey, hp: hp[m.key] };
+    });
+  }
+
+  function renderLegend() {
+    var el = document.getElementById("model-legend");
+    MODEL_ORDER.forEach(function (m) {
+      var item = document.createElement("span");
+      item.className = "item";
+      item.innerHTML = '<span class="swatch" style="background:' + m.color + '"></span>' + m.name;
+      el.appendChild(item);
+    });
+  }
+
+  renderLegend();
+  renderModelChart("chart-materia", buildSeries(MATERIA, MATERIA_HP));
+  renderModelChart("chart-bloom", buildSeries(BLOOM, BLOOM_HP));
+
+  // Nombres completos — de pipeline/standards/pr_estudios_sociales.yaml y
+  // pr_tecnologia.yaml. "IC" significa algo distinto en cada materia (Identidad
+  // Cultural vs. Impacts of Computing), por eso el nombre siempre se busca junto
+  // con la materia, nunca por código solo.
+  var STANDARD_NAMES = {
+    history: {
+      CC: "Cambio y Continuidad",
+      PLA: "Personas, Lugares y Ambiente",
+      DP: "Desarrollo Personal",
+      IC: "Identidad Cultural",
+      PDC: "Producción, Distribución y Consumo",
+      CCD: "Conciencia Cívica y Democrática",
+      CG: "Conciencia Global",
+      SCT: "Sociedad Científica y Tecnológica"
+    },
+    technology: {
+      CS: "Computing Systems",
+      NI: "Networks & the Internet",
+      DA: "Data & Analysis",
+      AP: "Algorithms & Programming",
+      IC: "Impacts of Computing",
+      "ISTE-EL": "Empowered Learner",
+      "ISTE-DC": "Digital Citizen",
+      "ISTE-KC": "Knowledge Constructor",
+      "ISTE-ID": "Innovative Designer",
+      "ISTE-CT": "Computational Thinker",
+      "ISTE-CC": "Creative Communicator",
+      "ISTE-GC": "Global Collaborator"
+    }
+  };
+  function standardName(subjectKey, code) {
+    var subj = (subjectKey === "historia" || subjectKey === "history") ? "history" : "technology";
+    return (STANDARD_NAMES[subj] && STANDARD_NAMES[subj][code]) || code;
+  }
+
+  var STANDARDS = {
+    historia: {
+      titulo: "Historia",
+      meta: "96 documentos (76 train / 20 test) · 8 códigos de estándar",
+      f1_micro: 0.625, f1_macro: 0.1071, docs: 96,
+      codigos: [
+        { codigo: "CC", soporte: 66, precision: 0.75, recall: 1.00, f1: 0.86 },
+        { codigo: "SCT", soporte: 16, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "CCD", soporte: 13, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "PLA", soporte: 8, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "CG", soporte: 10, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "IC", soporte: 6, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "PDC", soporte: 4, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "DP", soporte: 3, precision: 0.00, recall: 0.00, f1: 0.00 }
+      ]
+    },
+    tecnologia: {
+      titulo: "Tecnología",
+      meta: "34 documentos (27 train / 7 test) · 9 códigos de estándar",
+      f1_micro: 0.0, f1_macro: 0.0, docs: 34,
+      codigos: [
+        { codigo: "ISTE-CT", soporte: 10, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "CS", soporte: 8, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "ISTE-KC", soporte: 6, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "ISTE-CC", soporte: 5, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "ISTE-DC", soporte: 5, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "IC", soporte: 5, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "AP", soporte: 4, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "DA", soporte: 2, precision: 0.00, recall: 0.00, f1: 0.00 },
+        { codigo: "NI", soporte: 2, precision: 0.00, recall: 0.00, f1: 0.00 }
+      ]
+    }
+  };
+
+  function renderStandards(subject) {
+    var d = STANDARDS[subject];
+    d.codigos.forEach(function (c) { c.nombre = standardName(subject, c.codigo); });
+
+    document.getElementById("std-title").innerHTML = d.titulo + ' <span class="tag">ml-estandares-eval --materia ' + subject + '</span>';
+    document.getElementById("std-meta").textContent = d.meta;
+
+    var stats = document.getElementById("std-stats");
+    stats.innerHTML =
+      '<div class="stat-tile"><span class="num">' + d.f1_micro.toFixed(3) + '</span><span class="lbl">F1 micro</span></div>' +
+      '<div class="stat-tile"><span class="num">' + d.f1_macro.toFixed(3) + '</span><span class="lbl">F1 macro</span></div>' +
+      '<div class="stat-tile"><span class="num">' + d.codigos.length + '</span><span class="lbl">códigos de estándar</span></div>';
+
+    renderSupportChart("chart-estandares", d.codigos);
+
+    var tbody = document.querySelector("#std-table tbody");
+    tbody.innerHTML = "";
+    d.codigos.forEach(function (c) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = "<td class='code'>" + c.codigo + "</td><td>" + c.nombre + "</td><td>" + c.soporte + "</td><td>" + c.precision.toFixed(2) + "</td><td>" + c.recall.toFixed(2) + "</td><td>" + c.f1.toFixed(2) + "</td>";
+      tbody.appendChild(tr);
+    });
+  }
+
+  renderStandards("historia");
+
+  document.querySelectorAll('.tabs button').forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll('.tabs button').forEach(function (b) { b.setAttribute("aria-selected", "false"); });
+      btn.setAttribute("aria-selected", "true");
+      renderStandards(btn.getAttribute("data-subject"));
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // "Analiza tu propio examen" — en vivo contra web/server.py.
+  // Al cargar la página se ve un ejemplo real ya corrido (claramente
+  // marcado como ejemplo); subir+analizar reemplaza ambos paneles con
+  // el resultado real del archivo del usuario.
+  // ---------------------------------------------------------------
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function renderMateriaEstandares(materia, estandares) {
+    var estandaresHtml;
+    if (estandares.estandares_predichos.length) {
+      estandaresHtml = estandares.estandares_predichos.map(function (e) {
+        return '<div style="margin-top:10px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:13px;gap:10px">' +
+          '<span><span class="mono" style="font-weight:600">' + esc(e.estandar) + '</span> — ' + esc(standardName(estandares.materia, e.estandar)) + '</span>' +
+          '<span class="mono" style="flex:none">' + (e.probabilidad * 100).toFixed(1) + '%</span></div>' +
+          '<div class="conf-bar"><span style="width:' + (e.probabilidad * 100) + '%"></span></div></div>';
+      }).join("");
+    } else {
+      estandaresHtml = '<p class="meta" style="margin-top:10px">' + esc(estandares.aviso) + '</p>';
+    }
+
+    document.getElementById("result-materia").innerHTML =
+      '<div class="identify-cards">' +
+      '<div class="card"><div class="k">Materia predicha</div>' +
+      '<div class="v">' + esc(materia.materia_predicha) + '<small>modelo: ' + esc(materia.modelo_usado) + '</small></div>' +
+      '<div class="conf-bar"><span style="width:' + (materia.confianza == null ? 0 : materia.confianza * 100) + '%"></span></div>' +
+      '<div class="k" style="margin-top:6px">confianza ' + (materia.confianza == null ? "—" : (materia.confianza * 100).toFixed(2) + "%") + '</div></div>' +
+      '<div class="card"><div class="k">Estándares predichos (materia: ' + esc(estandares.materia) + ')</div>' + estandaresHtml + '</div>' +
+      '</div>';
+  }
+
+  function renderAuditoria(data) {
+    var criterios = data.criterios.map(function (c) {
+      return '<div class="criterion">' +
+        '<span class="pill ' + (c.aprobado ? "ok" : "fail") + '">' + (c.aprobado ? "OK" : "FALLA") + '</span>' +
+        '<div class="body"><div class="title">' + esc(c.criterio) + '</div>' +
+        '<div class="detail">' + esc(c.detalle) + '</div>' +
+        (c.explicacion ? '<div class="why"><b>Por qué falla:</b> ' + esc(c.explicacion) + '</div>' : "") +
+        '</div></div>';
+    }).join("");
+
+    document.getElementById("result-auditoria").innerHTML =
+      '<span class="file-chip">📄 ' + esc(data.archivo.split(/[\\/]/).pop()) + ' — ' + esc(data.materia) + ', grado ' + esc(data.grado == null ? "—" : data.grado) +
+      ' — ' + data.total_preguntas + ' pregunta(s) detectada(s)</span>' +
+      '<div style="margin-top:2px">' +
+      '<strong>' + (data.aprobado_general ? "APROBADO" : "NO APROBADO") + '</strong>' +
+      '</div>' + criterios;
+  }
+
+  function renderExampleDefaults() {
+    renderMateriaEstandares(
+      { materia_predicha: "history", modelo_usado: "boosting", confianza: 0.9955 },
+      { materia: "history", estandares_predichos: [{ estandar: "CC", probabilidad: 0.8568 }], aviso: null }
+    );
+    renderAuditoria({
+      archivo: "History Test 7th.docx",
+      materia: "history",
+      grado: 7,
+      total_preguntas: 6,
+      aprobado_general: false,
+      criterios: [
+        { criterio: "Puntuación total > 50 (heurística por DOK)", aprobado: false, detalle: "Total: 30 puntos (6 pregunta(s)).", explicacion: "Suma 30 puntos, se esperan más de 50 — un examen corto puede ser perfectamente válido, esto solo marca que es breve." },
+        { criterio: "Mínimo 4 tipos de parte distintos", aprobado: false, detalle: "Tipos encontrados (2): completar, respuesta_corta.", explicacion: "Solo 2 tipos de pregunta detectados por patrón de texto; un examen con variedad suele tener al menos 4." },
+        { criterio: "Sin preguntas casi duplicadas", aprobado: false, detalle: "Par casi-duplicado: preguntas 1 y 2 (similaridad semántica 0.91).", explicacion: "Esas dos preguntas son casi idénticas entre sí — puede ser redundancia involuntaria o repetición intencional, hay que revisarlo." }
+      ]
+    });
+  }
+
+  renderExampleDefaults();
+
+  var fileInput = document.getElementById("file-input");
+  var analyzeBtn = document.getElementById("analyze-btn");
+  var uploadLabel = document.getElementById("upload-label");
+  var serverHint = document.getElementById("server-hint");
+
+  fileInput.addEventListener("change", function () {
+    var file = fileInput.files[0];
+    uploadLabel.textContent = file ? file.name : "Elegir examen…";
+    analyzeBtn.disabled = !file;
+  });
+
+  function setLoading() {
+    document.getElementById("analizar-materia-tag").textContent = "analizando…";
+    document.getElementById("analizar-audit-tag").textContent = "analizando…";
+    var spinner = '<div class="loading-row"><span class="spinner"></span>Corriendo el clasificador…</div>';
+    document.getElementById("result-materia").innerHTML = spinner;
+    document.getElementById("result-auditoria").innerHTML = spinner;
+  }
+
+  function setError(msg) {
+    document.getElementById("result-materia").innerHTML = '<div class="error-row">' + esc(msg) + '</div>';
+    document.getElementById("result-auditoria").innerHTML = '<div class="error-row">' + esc(msg) + '</div>';
+  }
+
+  analyzeBtn.addEventListener("click", function () {
+    var file = fileInput.files[0];
+    if (!file) return;
+
+    serverHint.hidden = true;
+    analyzeBtn.disabled = true;
+    setLoading();
+
+    var tagText = "tu archivo — " + file.name;
+
+    // Secuencial a propósito: identificar primero para saber la materia predicha, y
+    // mandarla a /api/auditar — un archivo subido vive en un temporal fuera de data/raw/,
+    // así que la auditoría no puede inferir la materia por carpeta por su cuenta.
+    var idFormData = new FormData();
+    idFormData.append("archivo", file);
+
+    fetch("/api/identificar", { method: "POST", body: idFormData })
+      .then(function (r) { return r.json(); })
+      .then(function (idData) {
+        document.getElementById("analizar-materia-tag").textContent = tagText;
+        if (idData.error) {
+          document.getElementById("result-materia").innerHTML = '<div class="error-row">' + esc(idData.error) + '</div>';
+        } else {
+          renderMateriaEstandares(idData.materia, idData.estandares);
+        }
+
+        var auditFormData = new FormData();
+        auditFormData.append("archivo", file);
+        if (!idData.error) auditFormData.append("materia", idData.materia.materia_predicha);
+
+        return fetch("/api/auditar", { method: "POST", body: auditFormData }).then(function (r) { return r.json(); });
+      })
+      .then(function (auditData) {
+        document.getElementById("analizar-audit-tag").textContent = tagText;
+        if (auditData.error) {
+          document.getElementById("result-auditoria").innerHTML = '<div class="error-row">' + esc(auditData.error) + '</div>';
+        } else {
+          renderAuditoria(auditData);
+        }
+      })
+      .catch(function () {
+        serverHint.hidden = false;
+        setError("No se pudo conectar con el servidor local — ver nota abajo.");
+      })
+      .finally(function () {
+        analyzeBtn.disabled = false;
+      });
+  });
+})();
+</script>

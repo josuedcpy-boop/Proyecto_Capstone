@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 
 from pipeline.analysis.topic_balance import balance_report, cluster_questions, collect_historical_questions
+from pipeline.audit.exam_review import review_exam
 from pipeline.config import BANCO_EXAMENES_PATH, get_settings
 from pipeline.difficulty.run import print_profile, profile_file
 from pipeline.ingest.run import ingest_all as _ingest_all
@@ -68,6 +69,26 @@ def profile(archivo: str):
     """Construye la tabla de especificaciones (Bloom x DOK) de un examen puntual."""
     exam_profile, _questions = profile_file(Path(archivo))
     print_profile(exam_profile)
+
+
+@app.command(name="auditar-examen")
+def auditar_examen(archivo: str):
+    """Audita la FORMA de cualquier examen (propio o subido por un usuario, no tiene que
+    ser generado por este pipeline): puntuación total, variedad de tipos de pregunta, y
+    duplicados internos. No chequea 'fuga de respuesta' — ver pipeline/audit/exam_review.py."""
+    resultado = review_exam(Path(archivo))
+
+    typer.echo(f"Examen: {resultado['archivo']} ({resultado['materia']}, grado {resultado['grado']})")
+    typer.echo(f"Preguntas detectadas: {resultado['total_preguntas']}")
+    typer.echo(f"Perfil Bloom/DOK: {resultado['perfil_bloom_dok']}\n")
+
+    for criterio in resultado["criterios"]:
+        marca = "[OK]" if criterio["aprobado"] else "[FALLA]"
+        _echo_safe(f"  {marca} {criterio['criterio']}")
+        _echo_safe(f"      {criterio['detalle']}")
+        if criterio["explicacion"]:
+            _echo_safe(f"      Por qué falla: {criterio['explicacion']}")
+    typer.echo("APROBADO GENERAL" if resultado["aprobado_general"] else "NO APROBADO")
 
 
 @app.command(name="topic-balance")

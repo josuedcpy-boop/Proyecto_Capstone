@@ -14,6 +14,7 @@ El pipeline completo (ingesta → etiquetado de temas → perfil de dificultad �
 | `docs/estandares_y_mejores_practicas.md` | Estándares oficiales de PR y EE.UU. (Estudios Sociales y Tecnología/CS) + mejores prácticas de diseño de lecciones y exámenes |
 | `pipeline/` | Código del pipeline (ingesta, estándares, embeddings/RAG, etiquetado, perfil de dificultad, clasificadores ML de materia/estándares/dificultad) |
 | `tests/` | Pruebas automáticas (`pytest`) de las partes deterministas del pipeline |
+| `web/` | Página web interactiva (`demo.html` + `server.py`) para identificar/auditar un examen subido desde el navegador, sin terminal — ver [Página web interactiva](#página-web-interactiva-weddemohtml) |
 | `_deprecated/` | Generación de exámenes/lecciones calibrados por dificultad — el enfoque original del capstone, archivado (no borrado) el 2026-10-20 al pivotear hacia identificación de materia/estándares. Ver `_deprecated/README.md`. |
 
 ## Estructura de `data/raw/`
@@ -73,6 +74,7 @@ python -m pipeline.cli ml-estandares-eval --materia historia                    
 python -m pipeline.cli predecir-examen "archivo.docx" --objetivo materia               # identifica la materia de un examen nuevo
 python -m pipeline.cli predecir-examen "archivo.docx" --objetivo estandares            # identifica los estándares que cumple (infiere materia si no se da --materia)
 python -m pipeline.cli predecir-examen "archivo.docx" --objetivo dificultad            # perfil Bloom/DOK por pregunta de un examen nuevo
+python -m pipeline.cli auditar-examen "archivo.docx"                                   # audita la FORMA de cualquier examen (propio o subido): puntos, variedad, duplicados
 ```
 
 ### Niveles Bloom y Webb's DOK (qué mide cada uno)
@@ -101,7 +103,9 @@ El comando `profile` (y `predecir-examen --objetivo dificultad`) clasifica cada 
 
 La materia, en cambio, sí tiene verdad de terreno real (viene de la carpeta de origen en `data/raw/<subject>/...`), no es una pseudo-etiqueta.
 
-Lo mismo está disponible sin terminal: herramientas MCP `identificar_materia`/`identificar_estandares`, o la pestaña "Identificar examen" de `streamlit run app.py`.
+Además, `auditar-examen "archivo.docx"` audita la **forma** de cualquier examen (propio o subido por un usuario, no tiene que haber sido generado por este pipeline) contra 3 criterios: puntuación total (heurística por nivel DOK, > 50), variedad de tipos de pregunta detectados por patrón (mínimo 4 distintos), y ausencia de preguntas casi duplicadas dentro del mismo examen. **No** incluye el criterio de "fuga de respuesta" que tenía el audit original (ahora en `_deprecated/`) — ese solo tiene sentido para un examen generado con su clave de respuesta ya estructurada; un examen real subido normalmente ni siquiera trae esa clave (ver `pipeline/audit/exam_review.py`).
+
+Lo mismo está disponible sin terminal: herramientas MCP `identificar_materia`/`identificar_estandares`/`auditar_examen`, o la pestaña "Identificar examen" de `streamlit run app.py` (identifica materia + estándares + audita la forma, todo sobre el mismo archivo subido).
 
 ### Pruebas
 
@@ -115,7 +119,7 @@ Cubre extractores, el separador de preguntas, las reglas Bloom/DOK, balance de t
 
 `mcp_server.py` expone el pipeline (ingesta, etiquetado de temas, balance de temas, perfil de dificultad, y los clasificadores de materia/estándares/dificultad) como herramientas MCP, para orquestarlo conversacionalmente desde una sesión de Claude en vez de por comandos sueltos.
 
-**Opción 1 — desde Claude Code en este proyecto (recomendado, no requiere arrancarlo a mano):** ya está conectado vía `.mcp.json` en la raíz del repo. Basta con abrir (o reabrir) Claude Code con esta carpeta como directorio de trabajo para que las herramientas `mcp__capstone-pipeline__*` (`ingerir_materiales`, `etiquetar_temas`, `verificar_cobertura_temas`, `clasificar_dificultad`, `identificar_materia`, `identificar_estandares`, `construir_banco_examenes`, `entrenar_clasificador_dificultad`, `entrenar_clasificador_materia`, `entrenar_clasificador_estandares`, `predecir_dificultad`) aparezcan disponibles automáticamente — Claude Code arranca el proceso del servidor por su cuenta. Si no aparecen, correr `/mcp` dentro de la sesión para ver el estado de la conexión.
+**Opción 1 — desde Claude Code en este proyecto (recomendado, no requiere arrancarlo a mano):** ya está conectado vía `.mcp.json` en la raíz del repo. Basta con abrir (o reabrir) Claude Code con esta carpeta como directorio de trabajo para que las herramientas `mcp__capstone-pipeline__*` (`ingerir_materiales`, `etiquetar_temas`, `verificar_cobertura_temas`, `clasificar_dificultad`, `identificar_materia`, `identificar_estandares`, `auditar_examen`, `construir_banco_examenes`, `entrenar_clasificador_dificultad`, `entrenar_clasificador_materia`, `entrenar_clasificador_estandares`, `predecir_dificultad`) aparezcan disponibles automáticamente — Claude Code arranca el proceso del servidor por su cuenta. Si no aparecen, correr `/mcp` dentro de la sesión para ver el estado de la conexión.
 
 **Opción 2 — correrlo a mano (para otro cliente MCP, o para probarlo suelto):**
 ```bash
@@ -131,6 +135,17 @@ Para usar el pipeline desde el navegador con botones en vez de la terminal:
 streamlit run app.py
 ```
 Abre `http://localhost:8501` con pestañas para identificar materia/estándares de un examen subido, ver el balance de temas, entrenar/evaluar los 3 clasificadores ML (dificultad/materia/estándares), e ingerir/etiquetar materiales — todo reutilizando las mismas funciones que `pipeline/cli.py` y `mcp_server.py`.
+
+### Página web interactiva (`web/demo.html`)
+
+Una alternativa a Streamlit sin dependencias de UI pesadas: una sola página HTML con gráficas (cómo se comparan los modelos al entrenar, para materia/dificultad/estándares) más una sección en la que **tú subes tu propio examen** desde tu computadora y el sistema lo identifica y audita en vivo.
+
+```bash
+python web/server.py
+```
+Abre **`http://localhost:8600`** en el navegador — no abras `web/demo.html` con doble clic, porque sin el servidor corriendo no hay nada que responda cuando subes un archivo (vas a ver el mensaje de error que la página misma explica). `web/server.py` es un servidor Flask local y minimalista: sirve la página y expone dos rutas (`/api/identificar`, `/api/auditar`) que reutilizan exactamente `predict_exam_subject`, `predict_exam_standards` y `review_exam` — las mismas funciones que usan la CLI, el servidor MCP y Streamlit. Nada sale de tu computadora.
+
+En la sección "Analiza tu propio examen": sube un `.docx`/`.pdf`/`.pptx`/`.xlsx`/`.txt`, pulsa "Identificar y auditar", y espera — cada clasificador se reentrena desde cero con el banco actual (sin caché), así que puede tardar alrededor de un minuto. El resto de la página (comparación de los 5 modelos por F1-macro, y el desglose de estándares por materia) son resultados ya calculados, no se recalculan al cargar la página.
 
 ### Modelos supervisados (ML) — y sus limitaciones honestas
 
