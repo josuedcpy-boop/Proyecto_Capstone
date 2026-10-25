@@ -20,12 +20,12 @@ con tan poco soporte por etiqueta, esa comparación no sería estadísticamente 
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
-from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MultiLabelBinarizer
@@ -63,11 +63,63 @@ def _make_pipeline() -> Pipeline:
     ])
 
 
-# Entrena con una partición simple train/test a nivel de documento (sin estratificación
-# multi-etiqueta — con tan pocos documentos y códigos tan desbalanceados, una estratificación
-# real necesitaría una librería aparte; se documenta como limitación en vez de forzarla) y
-# reporta soporte por código (cuántos documentos lo tienen — clave para leer el resto con
-# cautela) más precision/recall/F1 por código y agregados micro/macro.
+def _rarest_label_count(row, label_totals) -> float:
+    activos = [label_totals[l] for l in range(len(row)) if row[l]]
+    return min(activos) if activos else float("inf")
+
+
+# Partición train/test consciente de las etiquetas multi-label (versión simplificada de la
+# estratificación iterativa de Sechidis et al., 2011): procesa primero los documentos que
+# cargan la etiqueta más rara, y decide cada documento según SOLO esa etiqueta más rara que
+# carga (no la suma de todas sus etiquetas: sumar deja que un código muy común presente en el
+# mismo documento, como CC con 66 de 96 documentos, arrastre a un código raro que coexiste con
+# él siempre hacia train, porque el remanente de train para el código común es mucho mayor).
+# Un código con menos de 2 documentos positivos no puede aparecer en ambos conjuntos a la vez;
+# esos quedan sin representación en test (se ve reflejado en soporte_por_codigo, no se oculta).
+def _iterative_multilabel_split(y, test_size: float, random_state: int) -> tuple[list[int], list[int]]:
+    n_samples, n_labels = y.shape
+    label_totals = y.sum(axis=0)
+    deseado_test = [round(total * test_size) for total in label_totals]
+    objetivo_test_total = round(n_samples * test_size)
+
+    test_count = [0] * n_labels
+    train_count = [0] * n_labels
+    train_idx: list[int] = []
+    test_idx: list[int] = []
+
+    orden = list(range(n_samples))
+    random.Random(random_state).shuffle(orden)
+    orden.sort(key=lambda i: _rarest_label_count(y[i], label_totals))
+
+    for i in orden:
+        activos = [l for l in range(n_labels) if y[i][l]]
+        if not activos:
+            va_a_test = len(test_idx) < objetivo_test_total
+        else:
+            l_decisivo = min(activos, key=lambda l: label_totals[l])
+            restante_test = deseado_test[l_decisivo] - test_count[l_decisivo]
+            restante_train = (label_totals[l_decisivo] - deseado_test[l_decisivo]) - train_count[l_decisivo]
+            if restante_test == restante_train:
+                va_a_test = len(test_idx) < objetivo_test_total
+            else:
+                va_a_test = restante_test > restante_train
+
+        if va_a_test:
+            test_idx.append(i)
+            for l in activos:
+                test_count[l] += 1
+        else:
+            train_idx.append(i)
+            for l in activos:
+                train_count[l] += 1
+
+    return train_idx, test_idx
+
+
+# Reporta soporte por código (cuántos documentos lo tienen — clave para leer el resto con
+# cautela) más precision/recall/F1 por código y agregados micro/macro, sobre una partición
+# train/test que intenta repartir cada código de estándar entre ambos conjuntos
+# (_iterative_multilabel_split), no solo mantener la proporción global 80/20.
 def evaluate_standards_model(subject: str) -> dict:
     texts, document_ids, label_sets = build_standards_dataset(subject)
     if len(texts) < _MIN_DOCS_FOR_EVAL:
@@ -81,7 +133,7 @@ def evaluate_standards_model(subject: str) -> dict:
     codigos = list(binarizer.classes_)
     soporte = {codigo: int(y[:, i].sum()) for i, codigo in enumerate(codigos)}
 
-    train_idx, test_idx = train_test_split(range(len(texts)), test_size=_TEST_SIZE, random_state=_RANDOM_STATE)
+    train_idx, test_idx = _iterative_multilabel_split(y, _TEST_SIZE, _RANDOM_STATE)
     train_texts = [texts[i] for i in train_idx]
     test_texts = [texts[i] for i in test_idx]
 
