@@ -34,9 +34,3 @@ El separador de preguntas (`pipeline/difficulty/splitter.py`) solo reconoce el i
 El **criterio 2 (variedad de tipos de parte)** sí falla legítimamente, numeración aparte: la inspección manual confirma que el examen es 100% opción múltiple, sin pareo, verdadero/falso, respuesta corta ni ensayo — no depende del bug de separación.
 
 **Sugerencia (no aplicada, a decisión del usuario):** si se quiere auditar de forma confiable exámenes sin numeración explícita como este, `split_questions` necesitaría una señal adicional de corte (ej. el patrón de opciones `a) ... b) ... c) ... d)` que ya reconoce `detect_part_type`, usado como límite de pregunta además de la numeración). No se modificó nada del pipeline para este reporte.
-
-## Resumen
-
-- La identificación de materia/estándar es razonable y consistente con el contenido.
-- La auditoría de forma marca **NO APROBADO**, y al menos el criterio de variedad de tipos de pregunta es una falla real (examen 100% opción múltiple).
-- El criterio de puntuación total, sin embargo, está invalidado para este archivo específico por la falta de numeración — no se puede confiar en el "15 puntos" reportado como reflejo del examen real de ~45 preguntas.
