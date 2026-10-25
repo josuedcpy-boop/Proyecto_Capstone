@@ -1,5 +1,11 @@
+import numpy as np
+
 from pipeline.ml import standards_classifier as mod
-from pipeline.ml.standards_classifier import build_standards_dataset, evaluate_standards_model
+from pipeline.ml.standards_classifier import (
+    _iterative_multilabel_split,
+    build_standards_dataset,
+    evaluate_standards_model,
+)
 from pipeline.schemas import Document, StandardTag
 
 
@@ -62,3 +68,36 @@ def test_evaluate_standards_model_reports_sin_datos_with_too_few_documents(monke
     report = evaluate_standards_model("history")
 
     assert report["estado"] == "sin_datos"
+
+
+def test_iterative_multilabel_split_represents_codes_with_enough_support_in_both_sets():
+    # CC y PLA tienen 8 documentos cada uno (suficiente para aparecer en ambos conjuntos);
+    # IC tiene solo 1, así que no se le puede exigir presencia en los dos a la vez.
+    y = np.zeros((16, 3), dtype=int)  # columnas: CC, PLA, IC
+    for i in range(16):
+        if i % 2 == 0:
+            y[i, 0] = 1
+        else:
+            y[i, 1] = 1
+    y[0, 2] = 1
+
+    train_idx, test_idx = _iterative_multilabel_split(y, test_size=0.2, random_state=42)
+
+    assert set(train_idx) | set(test_idx) == set(range(16))
+    assert set(train_idx) & set(test_idx) == set()
+    assert y[test_idx, 0].sum() >= 1  # CC presente en test
+    assert y[test_idx, 1].sum() >= 1  # PLA presente en test
+    assert 2 <= len(test_idx) <= 6  # cerca del 20% de 16, sin ser exacto por el redondeo por código
+
+
+def test_iterative_multilabel_split_keeps_rare_code_out_of_test_without_crashing():
+    # Un código con un solo documento positivo no puede repartirse entre train y test;
+    # la función no debe fallar ni forzarlo, solo lo deja donde caiga por la proporción global.
+    y = np.zeros((10, 2), dtype=int)
+    y[:, 0] = 1  # CC en todos
+    y[0, 1] = 1  # PLA solo en un documento
+
+    train_idx, test_idx = _iterative_multilabel_split(y, test_size=0.2, random_state=42)
+
+    assert len(train_idx) + len(test_idx) == 10
+    assert len(test_idx) in (1, 2, 3)
