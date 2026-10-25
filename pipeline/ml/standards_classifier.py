@@ -97,12 +97,20 @@ def _iterative_multilabel_split(y, test_size: float, random_state: int) -> tuple
             va_a_test = len(test_idx) < objetivo_test_total
         else:
             l_decisivo = min(activos, key=lambda l: label_totals[l])
-            restante_test = deseado_test[l_decisivo] - test_count[l_decisivo]
-            restante_train = (label_totals[l_decisivo] - deseado_test[l_decisivo]) - train_count[l_decisivo]
-            if restante_test == restante_train:
+            if deseado_test[l_decisivo] == 0:
+                # Esta etiqueta es tan rara que su propia cuota de test redondea a 0: no hay
+                # nada que "repartir" para ella, así que no debe decidir el documento. Sin este
+                # caso, cuando TODOS los documentos caen en esta situación (ej. cada uno con una
+                # etiqueta única propia), el documento siempre gana train de forma determinista
+                # y test_idx termina vacío, lo cual rompe classification_report más adelante.
                 va_a_test = len(test_idx) < objetivo_test_total
             else:
-                va_a_test = restante_test > restante_train
+                restante_test = deseado_test[l_decisivo] - test_count[l_decisivo]
+                restante_train = (label_totals[l_decisivo] - deseado_test[l_decisivo]) - train_count[l_decisivo]
+                if restante_test == restante_train:
+                    va_a_test = len(test_idx) < objetivo_test_total
+                else:
+                    va_a_test = restante_test > restante_train
 
         if va_a_test:
             test_idx.append(i)

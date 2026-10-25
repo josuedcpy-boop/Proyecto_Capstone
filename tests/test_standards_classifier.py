@@ -101,3 +101,15 @@ def test_iterative_multilabel_split_keeps_rare_code_out_of_test_without_crashing
 
     assert len(train_idx) + len(test_idx) == 10
     assert len(test_idx) in (1, 2, 3)
+
+
+def test_iterative_multilabel_split_never_leaves_test_empty_when_every_label_is_singleton():
+    # Caso límite encontrado en revisión: si CADA documento carga una etiqueta única propia
+    # (ninguna etiqueta tiene 2+ positivos), antes test_idx quedaba vacío siempre, lo cual
+    # hacía fallar classification_report en evaluate_standards_model con ValueError.
+    y = np.eye(10, dtype=int)
+
+    train_idx, test_idx = _iterative_multilabel_split(y, test_size=0.2, random_state=42)
+
+    assert len(train_idx) + len(test_idx) == 10
+    assert len(test_idx) >= 1
